@@ -1,0 +1,134 @@
+name: dg-alice-shop
+services:
+    alice-shop-db:
+        image: postgres:16.4
+        container_name: alice-shop-db
+        hostname: alice-shop-db
+        user: 999:999
+        restart: unless-stopped
+        cap_drop:
+            - ALL
+        security_opt:
+            - no-new-privileges:true
+        read_only: false
+        tmpfs:
+            - /tmp
+        mem_limit: 134217728
+        memswap_limit: 134217728
+        cpus: 0.25
+        pids_limit: 256
+        logging:
+            driver: json-file
+            options:
+                max-file: "3"
+                max-size: 10m
+        volumes:
+            - type: bind
+              source: /srv/ws/alice/shop/data/db
+              target: /var/lib/postgresql/data
+              bind:
+                create_host_path: false
+        healthcheck:
+            test:
+                - CMD
+                - pg_isready
+            interval: 10s
+            retries: 5
+        networks:
+            - dg-alice-shop
+        labels:
+            deploy-gateway.app: shop
+            deploy-gateway.managed: "true"
+            deploy-gateway.service: db
+            deploy-gateway.workspace: alice
+    alice-shop-web:
+        image: ghcr.io/me/shop:1.4.2
+        container_name: alice-shop-web
+        hostname: alice-shop-web
+        environment:
+            GREETING: cost $${HOME} $$5
+        restart: unless-stopped
+        cap_drop:
+            - ALL
+        security_opt:
+            - no-new-privileges:true
+        read_only: true
+        tmpfs:
+            - /tmp
+        mem_limit: 268435456
+        memswap_limit: 268435456
+        cpus: 0.5
+        pids_limit: 256
+        logging:
+            driver: json-file
+            options:
+                max-file: "3"
+                max-size: 10m
+        ports:
+            - target: 9090
+              published: "20001"
+              host_ip: 0.0.0.0
+              protocol: tcp
+        healthcheck:
+            test:
+                - CMD
+                - wget
+                - -qO-
+                - http://localhost:8080/health
+            interval: 30s
+            retries: 3
+        depends_on:
+            alice-shop-db:
+                condition: service_healthy
+        networks:
+            - dg-alice-shop
+            - apps
+        labels:
+            deploy-gateway.app: shop
+            deploy-gateway.managed: "true"
+            deploy-gateway.service: web
+            deploy-gateway.workspace: alice
+            traefik.enable: "true"
+            traefik.http.routers.alice-shop-web.rule: Host(`shop.alice.apps.example.com`)
+            traefik.http.services.alice-shop-web.loadbalancer.server.port: "8080"
+            x.regex: ^/api$$
+    alice-shop-worker:
+        image: ghcr.io/me/worker:1.0.0
+        container_name: alice-shop-worker
+        hostname: alice-shop-worker
+        command:
+            - run
+            - $$JOB
+        restart: unless-stopped
+        cap_drop:
+            - ALL
+        security_opt:
+            - no-new-privileges:true
+        read_only: true
+        tmpfs:
+            - /tmp
+        mem_limit: 134217728
+        memswap_limit: 134217728
+        cpus: 0.25
+        pids_limit: 256
+        logging:
+            driver: json-file
+            options:
+                max-file: "3"
+                max-size: 10m
+        depends_on:
+            alice-shop-web:
+                condition: service_healthy
+        networks:
+            - dg-alice-shop
+        labels:
+            deploy-gateway.app: shop
+            deploy-gateway.managed: "true"
+            deploy-gateway.service: worker
+            deploy-gateway.workspace: alice
+networks:
+    apps:
+        name: apps
+        external: true
+    dg-alice-shop:
+        name: dg-alice-shop
