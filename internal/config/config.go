@@ -1,0 +1,118 @@
+// Package config loads gateway configuration from the environment (spec §16).
+package config
+
+import (
+	"errors"
+	"fmt"
+	"net/netip"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+)
+
+type Config struct {
+	AgentListen         string
+	AdminListen         string
+	DataDir             string
+	WorkspacesRoot      string
+	AdminPasswordHash   string
+	AdminTrustedProxies []netip.Prefix
+	AdminUserHeader     string
+	TrustedProxies      []netip.Prefix
+	DockerConfig        string
+	DockerHost          string
+	ComposeBin          string
+	DeployTimeout       time.Duration
+	DeployConcurrency   int
+}
+
+// ProxyMode is true when the built-in admin login is disabled and a trusted
+// forward-auth proxy authenticates admins.
+func (c Config) ProxyMode() bool { return c.AdminPasswordHash == "" }
+
+func Load(getenv func(string) string) (Config, error) {
+	or := func(key, def string) string {
+		if v := getenv(key); v != "" {
+			return v
+		}
+		return def
+	}
+	c := Config{
+		AgentListen:       or("AGENT_LISTEN", ":8080"),
+		AdminListen:       or("ADMIN_LISTEN", ":8081"),
+		DataDir:           or("DATA_DIR", "/data"),
+		WorkspacesRoot:    getenv("WORKSPACES_ROOT"),
+		AdminPasswordHash: getenv("ADMIN_PASSWORD_HASH"),
+		AdminUserHeader:   getenv("ADMIN_USER_HEADER"),
+		DockerConfig:      or("DOCKER_CONFIG", "/docker"),
+		DockerHost:        or("DOCKER_HOST", "unix:///var/run/docker.sock"),
+		ComposeBin:        or("COMPOSE_BIN", "/usr/local/bin/docker-compose"),
+		DeployTimeout:     300 * time.Second,
+		DeployConcurrency: 1,
+	}
+	var errs []string
+	if c.WorkspacesRoot == "" || !filepath.IsAbs(c.WorkspacesRoot) || filepath.Clean(c.WorkspacesRoot) != c.WorkspacesRoot {
+		errs = append(errs, "WORKSPACES_ROOT must be a clean absolute path")
+	}
+	var err error
+	if c.AdminTrustedProxies, err = ParsePrefixes(getenv("ADMIN_TRUSTED_PROXIES")); err != nil {
+		errs = append(errs, "ADMIN_TRUSTED_PROXIES: "+err.Error())
+	}
+	if c.TrustedProxies, err = ParsePrefixes(getenv("TRUSTED_PROXIES")); err != nil {
+		errs = append(errs, "TRUSTED_PROXIES: "+err.Error())
+	}
+	if s := getenv("DEPLOY_TIMEOUT"); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil || d < 10*time.Second || d > time.Hour {
+			errs = append(errs, "DEPLOY_TIMEOUT must be a duration between 10s and 1h")
+		} else {
+			c.DeployTimeout = d
+		}
+	}
+	if s := getenv("DEPLOY_CONCURRENCY"); s != "" {
+		n, err := strconv.Atoi(s)
+		if err != nil || n < 1 || n > 8 {
+			errs = append(errs, "DEPLOY_CONCURRENCY must be 1-8")
+		} else {
+			c.DeployConcurrency = n
+		}
+	}
+	if c.ProxyMode() {
+		if len(c.AdminTrustedProxies) == 0 || c.AdminUserHeader == "" {
+			errs = append(errs, "ADMIN_PASSWORD_HASH is empty (proxy mode): ADMIN_TRUSTED_PROXIES and ADMIN_USER_HEADER are required")
+		}
+	} else if !strings.HasPrefix(c.AdminPasswordHash, "$argon2id$") {
+		errs = append(errs, "ADMIN_PASSWORD_HASH must be an argon2id hash (use `deploy-gateway hash-password`)")
+	}
+	if len(errs) > 0 {
+		return Config{}, errors.New(strings.Join(errs, "; "))
+	}
+	return c, nil
+}
+
+// ParsePrefixes parses a comma-separated list of IPs and CIDRs.
+func ParsePrefixes(s string) ([]netip.Prefix, error) {
+	var out []netip.Prefix
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if strings.Contains(part, "/") {
+			p, err := netip.ParsePrefix(part)
+			if err != nil {
+				return nil, fmt.Errorf("invalid CIDR %q", part)
+			}
+			out = append(out, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(part)
+		if err != nil {
+			return nil, fmt.Errorf("invalid IP %q", part)
+		}
+		a = a.Unmap()
+		out = append(out, netip.PrefixFrom(a, a.BitLen()))
+	}
+	return out, nil
+}
