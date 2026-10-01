@@ -4,7 +4,10 @@
 package verify
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"os"
 	"path"
@@ -62,8 +65,13 @@ func set(items ...string) map[string]bool {
 func Verify(doc []byte, p Policy) error {
 	var v Violations
 	var root yaml.Node
-	if err := yaml.Unmarshal(doc, &root); err != nil {
+	dec := yaml.NewDecoder(bytes.NewReader(doc))
+	if err := dec.Decode(&root); err != nil {
 		return Violations{"unparseable YAML: " + err.Error()}
+	}
+	var extra yaml.Node
+	if err := dec.Decode(&extra); !errors.Is(err, io.EOF) {
+		return Violations{"multiple YAML documents not allowed"}
 	}
 	checkNodes(&root, &v)
 	if len(v) > 0 {

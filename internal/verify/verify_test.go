@@ -230,3 +230,11 @@ func TestVerifyRejectsSymlinkedDataDir(t *testing.T) {
 		t.Fatalf("symlink not rejected: %v", err)
 	}
 }
+
+func TestVerifyRejectsMultipleDocuments(t *testing.T) {
+	doc, p := setup(t)
+	doc += "---\nservices:\n  alice-shop-web:\n    privileged: true\n"
+	if err := Verify([]byte(doc), p); err == nil || !strings.Contains(err.Error(), "multiple YAML documents") {
+		t.Fatalf("got %v", err)
+	}
+}
