@@ -1,0 +1,142 @@
+package tmpl
+
+import (
+	"strings"
+	"testing"
+)
+
+func publicWeb() Template {
+	return Template{
+		Name:        "public-web",
+		Description: "Public HTTPS via Traefik",
+		HostPattern: "{{app}}.{{workspace}}.apps.example.com",
+		Networks:    []string{"apps"},
+		Labels: map[string]string{
+			"traefik.enable":                                        "true",
+			"traefik.docker.network":                                "apps",
+			"traefik.http.routers.{{id}}.rule":                      "Host(`{{host}}`)",
+			"traefik.http.routers.{{id}}.entrypoints":               "websecure",
+			"traefik.http.services.{{id}}.loadbalancer.server.port": "{{port}}",
+		},
+	}
+}
+
+func TestValidateAcceptsExamples(t *testing.T) {
+	ok := []Template{
+		publicWeb(),
+		{Name: "per-service", HostPattern: "{{service}}-{{app}}-{{workspace}}.svc.example.com", Networks: []string{"apps"}},
+		{Name: "internal", Networks: []string{"apps"}, Labels: map[string]string{"traefik.enable": "false"}},
+	}
+	for _, tpl := range ok {
+		if err := Validate(tpl, nil); err != nil {
+			t.Errorf("%s: unexpected error %v", tpl.Name, err)
+		}
+	}
+}
+
+func TestValidateRejects(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(*Template)
+		want   string
+	}{
+		{"bad name", func(t *Template) { t.Name = "Public" }, "name"},
+		{"literal in subdomain", func(t *Template) { t.HostPattern = "app-{{app}}.{{workspace}}.example.com" }, "host_pattern must be"},
+		{"missing workspace", func(t *Template) { t.HostPattern = "{{app}}.apps.example.com" }, "{{workspace}}"},
+		{"duplicate placeholder", func(t *Template) { t.HostPattern = "{{app}}.{{app}}.{{workspace}}.example.com" }, "more than once"},
+		{"single label suffix", func(t *Template) { t.HostPattern = "{{app}}.{{workspace}}.localhost" }, "at least two labels"},
+		{"uppercase suffix", func(t *Template) { t.HostPattern = "{{app}}.{{workspace}}.Example.com" }, "host_pattern must be"},
+		{"host network", func(t *Template) { t.Networks = []string{"host"} }, `"host"`},
+		{"reserved dg- network", func(t *Template) { t.Networks = []string{"dg-alice-shop"} }, "dg-"},
+		{"owner label", func(t *Template) { t.Labels["deploy-gateway.workspace"] = "x" }, "deploy-gateway."},
+		{"label key starts with placeholder", func(t *Template) { t.Labels["{{app}}.x"] = "y" }, "must not start with a placeholder"},
+		{"unknown placeholder", func(t *Template) { t.Labels["x"] = "{{secret}}" }, "unknown placeholder"},
+		{"malformed placeholder", func(t *Template) { t.Labels["x"] = "{{app" }, "malformed"},
+		{"newline in value", func(t *Template) { t.Labels["x"] = "a\nb" }, "newline"},
+		{"host without pattern", func(t *Template) { t.HostPattern = "" }, "{{host}}"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tpl := publicWeb()
+			c.mutate(&tpl)
+			err := Validate(tpl, nil)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want error containing %q, got %v", c.want, err)
+			}
+		})
+	}
+}
+
+func TestValidateSuffixOverlap(t *testing.T) {
+	other := publicWeb() // suffix apps.example.com
+	cases := map[string]bool{
+		"{{app}}-{{workspace}}.apps.example.com":   true,  // equal
+		"{{app}}-{{workspace}}.x.apps.example.com": true,  // nested below
+		"{{app}}-{{workspace}}.example.com":        true,  // nested above
+		"{{app}}-{{workspace}}.myapps.example.com": false, // not on a label boundary
+		"{{app}}-{{workspace}}.apps.example.org":   false,
+	}
+	for pattern, wantErr := range cases {
+		tpl := Template{Name: "second", HostPattern: pattern, Networks: []string{"apps"}}
+		err := Validate(tpl, []Template{other})
+		if (err != nil) != wantErr {
+			t.Errorf("%s: wantErr=%v got %v", pattern, wantErr, err)
+		}
+	}
+	// Editing the same template must not conflict with its own stored version.
+	if err := Validate(publicWeb(), []Template{publicWeb()}); err != nil {
+		t.Fatalf("self overlap reported: %v", err)
+	}
+}
+
+func TestRender(t *testing.T) {
+	tpl := publicWeb()
+	v := Vars{Workspace: "alice", App: "my-shop", Service: "web", Port: 8080}
+	if got := tpl.Host(v); got != "my-shop.alice.apps.example.com" {
+		t.Fatalf("Host = %q", got)
+	}
+	labels := tpl.RenderLabels(v)
+	if labels["traefik.http.routers.alice-my-shop-web.rule"] != "Host(`my-shop.alice.apps.example.com`)" {
+		t.Fatalf("labels = %v", labels)
+	}
+	if labels["traefik.http.services.alice-my-shop-web.loadbalancer.server.port"] != "8080" {
+		t.Fatalf("labels = %v", labels)
+	}
+	if tpl.Shareable() {
+		t.Fatal("public-web has no {{service}}; must not be shareable")
+	}
+	if !(Template{HostPattern: "{{service}}.{{app}}.{{workspace}}.a.b"}).Shareable() || !(Template{}).Shareable() {
+		t.Fatal("expected shareable")
+	}
+	if HostSuffix(tpl.HostPattern) != "apps.example.com" {
+		t.Fatalf("HostSuffix = %q", HostSuffix(tpl.HostPattern))
+	}
+}
+
+func TestHostsAreUniqueWithinTemplate(t *testing.T) {
+	patterns := []string{
+		"{{service}}-{{app}}-{{workspace}}.a.example.com",
+		"{{workspace}}-{{app}}-{{service}}.a.example.com",
+		"{{app}}-{{service}}-{{workspace}}.a.example.com",
+		"{{service}}.{{app}}.{{workspace}}.a.example.com",
+	}
+	wss := []string{"ab", "abc", "a1"}
+	apps := []string{"x1", "x1-ab", "ab-x1", "x1-x1", "ab"}
+	svcs := []string{"ab", "x1", "abc"}
+	for _, p := range patterns {
+		tpl := Template{HostPattern: p}
+		seen := map[string]string{}
+		for _, w := range wss {
+			for _, a := range apps {
+				for _, s := range svcs {
+					h := tpl.Host(Vars{Workspace: w, App: a, Service: s})
+					key := w + "|" + a + "|" + s
+					if prev, dup := seen[h]; dup {
+						t.Fatalf("%s: %s and %s both produce %s", p, prev, key, h)
+					}
+					seen[h] = key
+				}
+			}
+		}
+	}
+}
