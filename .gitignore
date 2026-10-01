@@ -5,3 +5,6 @@
 *.db
 *.db-wal
 *.db-shm
+/internal/webui/dist/*
+!/internal/webui/dist/.keep
+/web/node_modules/

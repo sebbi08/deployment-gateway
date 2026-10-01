@@ -1,0 +1,206 @@
+package admin
+
+import (
+	"bytes"
+	"encoding/json"
+	"io/fs"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
+	"path/filepath"
+	"strings"
+	"testing"
+	"testing/fstest"
+
+	"github.com/sebmahr/deploy-gateway/internal/auth"
+	"github.com/sebmahr/deploy-gateway/internal/service"
+	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
+	"github.com/sebmahr/deploy-gateway/internal/store"
+)
+
+var builtUI = fstest.MapFS{
+	"index.html":        {Data: []byte(`<!doctype html><div id="root"></div>`)},
+	"assets/app-123.js": {Data: []byte(`console.log(1)`)},
+	"favicon.svg":       {Data: []byte(`<svg/>`)},
+}
+
+type testEnv struct {
+	h      http.Handler
+	svc    *service.Service
+	st     *store.Store
+	docker *servicetest.FakeDocker
+	root   string
+}
+
+func newEnv(t *testing.T, proxy bool, ui fs.FS) *testEnv {
+	t.Helper()
+	st, err := store.Open(filepath.Join(t.TempDir(), "admin.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	compose, docker := &servicetest.FakeCompose{}, servicetest.NewFakeDocker()
+	servicetest.Wire(compose, docker)
+	docker.Networks["apps"] = true
+	root := t.TempDir()
+	svc := service.New(st, compose, docker, root)
+	svc.Chown = func(string, int, int) error { return nil }
+	o := Options{Svc: svc, Store: st, UI: ui}
+	if proxy {
+		o.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("10.0.0.1/32")}
+		o.UserHeader = "Remote-User"
+	} else {
+		hash, err := auth.HashPassword("correct horse battery")
+		if err != nil {
+			t.Fatal(err)
+		}
+		o.PasswordHash = hash
+	}
+	return &testEnv{h: New(o).Handler(), svc: svc, st: st, docker: docker, root: root}
+}
+
+func (e *testEnv) do(method, path string, body any, mut ...func(*http.Request)) *httptest.ResponseRecorder {
+	var r *http.Request
+	if body != nil {
+		b, _ := json.Marshal(body)
+		r = httptest.NewRequest(method, path, bytes.NewReader(b))
+		r.Header.Set("Content-Type", "application/json")
+	} else {
+		r = httptest.NewRequest(method, path, nil)
+	}
+	for _, m := range mut {
+		m(r)
+	}
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, r)
+	return w
+}
+
+func decode[T any](t *testing.T, w *httptest.ResponseRecorder) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil {
+		t.Fatalf("decode %q: %v", w.Body.String(), err)
+	}
+	return v
+}
+
+func (e *testEnv) login(t *testing.T) func(*http.Request) {
+	t.Helper()
+	w := e.do("POST", "/api/admin/login", map[string]string{"password": "correct horse battery"})
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("login: %d %s", w.Code, w.Body.String())
+	}
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 || !cookies[0].HttpOnly || !cookies[0].Secure || cookies[0].SameSite != http.SameSiteStrictMode {
+		t.Fatalf("cookie = %+v", cookies)
+	}
+	c := cookies[0]
+	return func(r *http.Request) { r.AddCookie(c) }
+}
+
+func TestPasswordModeSession(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	w := e.do("GET", "/api/admin/me", nil)
+	if w.Code != http.StatusUnauthorized || decode[apiError](t, w).Code != "login_required" {
+		t.Fatalf("me without session: %d %s", w.Code, w.Body.String())
+	}
+	if w := e.do("POST", "/api/admin/login", map[string]string{"password": "wrong"}); w.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong password: %d", w.Code)
+	}
+	if w := e.do("POST", "/api/admin/login", map[string]any{"password": "x", "admin": true}); w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown field: %d", w.Code)
+	}
+	c := e.login(t)
+	w = e.do("GET", "/api/admin/me", nil, c)
+	me := decode[map[string]any](t, w)
+	if w.Code != 200 || me["actor"] != "admin" || me["proxy_mode"] != false || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("me: %d %v %v", w.Code, me, w.Header())
+	}
+	if w := e.do("POST", "/api/admin/logout", nil, c); w.Code != http.StatusNoContent {
+		t.Fatalf("logout: %d", w.Code)
+	}
+	if w := e.do("GET", "/api/admin/me", nil, c); w.Code != http.StatusUnauthorized {
+		t.Fatal("session still valid after logout")
+	}
+}
+
+func TestLoginRateLimit(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	for i := 0; i < 10; i++ {
+		e.do("POST", "/api/admin/login", map[string]string{"password": "wrong"})
+	}
+	if w := e.do("POST", "/api/admin/login", map[string]string{"password": "correct horse battery"}); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429, got %d", w.Code)
+	}
+}
+
+func TestCrossOriginRejected(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	c := e.login(t)
+	w := e.do("POST", "/api/admin/logout", nil, c, func(r *http.Request) { r.Header.Set("Sec-Fetch-Site", "cross-site") })
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("cross-site POST: %d", w.Code)
+	}
+}
+
+func TestProxyMode(t *testing.T) {
+	e := newEnv(t, true, builtUI)
+	if w := e.do("GET", "/", nil); w.Code != http.StatusForbidden {
+		t.Fatalf("untrusted peer must not even get the SPA: %d", w.Code)
+	}
+	trusted := func(r *http.Request) { r.RemoteAddr = "10.0.0.1:4444" }
+	if w := e.do("GET", "/api/admin/me", nil, trusted); w.Code != http.StatusUnauthorized || decode[apiError](t, w).Code != "unauthorized" {
+		t.Fatalf("missing header: %d %s", w.Code, w.Body.String())
+	}
+	user := func(r *http.Request) { trusted(r); r.Header.Set("Remote-User", "sebastian") }
+	w := e.do("GET", "/api/admin/me", nil, user)
+	me := decode[map[string]any](t, w)
+	if w.Code != 200 || me["actor"] != "proxy:sebastian" || me["proxy_mode"] != true {
+		t.Fatalf("me: %d %v", w.Code, me)
+	}
+	if w := e.do("POST", "/api/admin/login", map[string]string{"password": "x"}, user); w.Code != http.StatusNotFound {
+		t.Fatalf("login must not exist in proxy mode: %d", w.Code)
+	}
+}
+
+func TestSPAServing(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	w := e.do("GET", "/", nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `id="root"`) || w.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("index: %d %v", w.Code, w.Header())
+	}
+	if !strings.Contains(w.Header().Get("Content-Security-Policy"), "script-src 'self'") || w.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("security headers: %v", w.Header())
+	}
+	if w := e.do("GET", "/workspaces/alice", nil); w.Code != 200 || !strings.Contains(w.Body.String(), `id="root"`) {
+		t.Fatalf("client route fallback: %d", w.Code)
+	}
+	w = e.do("GET", "/assets/app-123.js", nil)
+	if w.Code != 200 || !strings.Contains(w.Header().Get("Cache-Control"), "immutable") {
+		t.Fatalf("asset: %d %v", w.Code, w.Header())
+	}
+	if w := e.do("GET", "/assets/missing.js", nil); w.Code != http.StatusNotFound {
+		t.Fatalf("missing asset: %d", w.Code)
+	}
+	if w := e.do("POST", "/", nil); w.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST to SPA: %d", w.Code)
+	}
+}
+
+func TestUINotBuilt(t *testing.T) {
+	e := newEnv(t, false, fstest.MapFS{".keep": {}})
+	w := e.do("GET", "/", nil)
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "admin UI not built") {
+		t.Fatalf("got %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestUnknownEndpointIsJSON404(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	c := e.login(t)
+	w := e.do("GET", "/api/admin/nope", nil, c)
+	if w.Code != http.StatusNotFound || decode[apiError](t, w).Code != "not_found" {
+		t.Fatalf("got %d %s", w.Code, w.Body.String())
+	}
+}
