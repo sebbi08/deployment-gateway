@@ -1,0 +1,9 @@
+.git
+data
+workspaces
+.env
+*.db
+docs
+web/node_modules
+internal/webui/dist/assets
+internal/webui/dist/index.html

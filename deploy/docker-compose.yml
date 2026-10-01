@@ -1,0 +1,36 @@
+services:
+  deploy-gateway:
+    image: ghcr.io/sebmahr/deploy-gateway:0.1.0
+    container_name: deploy-gateway
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Must be the identical absolute path on the host and in the container.
+      WORKSPACES_ROOT: /home/sebastian/docker/deploy-gateway/workspaces
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+      - /home/sebastian/docker/deploy-gateway/workspaces:/home/sebastian/docker/deploy-gateway/workspaces
+      - /home/sebastian/.docker/config.json:/docker/config.json:ro
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: ["no-new-privileges:true"]
+    read_only: true
+    tmpfs: [/tmp]
+    labels:
+      traefik.enable: true
+      traefik.docker.network: all
+      traefik.http.routers.deploy-gateway-mcp.rule: Host(`deploy-mcp.sebmahr.de`)
+      traefik.http.routers.deploy-gateway-mcp.entrypoints: websecure
+      traefik.http.routers.deploy-gateway-mcp.service: deploy-gateway-mcp
+      traefik.http.services.deploy-gateway-mcp.loadbalancer.server.port: 8080
+      traefik.http.routers.deploy-gateway-admin.rule: Host(`deploy-admin.sebmahr.de`)
+      traefik.http.routers.deploy-gateway-admin.entrypoints: websecure
+      traefik.http.routers.deploy-gateway-admin.middlewares: authelia@docker
+      traefik.http.routers.deploy-gateway-admin.service: deploy-gateway-admin
+      traefik.http.services.deploy-gateway-admin.loadbalancer.server.port: 8081
+    networks:
+      - all
+networks:
+  all:
+    external: true
