@@ -6,6 +6,8 @@ import { ErrorAlert } from "./components/ErrorAlert";
 import { Layout } from "./components/Layout";
 import { Dashboard } from "./pages/Dashboard";
 import { Login } from "./pages/Login";
+import { WorkspaceDetail } from "./pages/WorkspaceDetail";
+import { Workspaces } from "./pages/Workspaces";
 
 /** A session that expires while the app is open sends the user back to the login form. */
 export function createQueryClient(opts: { retry?: boolean } = {}): QueryClient {
@@ -45,6 +47,8 @@ export function App() {
     <Layout me={me.data}>
       <Routes>
         <Route path="/" element={<Dashboard />} />
+        <Route path="/workspaces" element={<Workspaces />} />
+        <Route path="/workspaces/:name" element={<WorkspaceDetail />} />
         <Route path="*" element={<Text>Page not found.</Text>} />
       </Routes>
     </Layout>
