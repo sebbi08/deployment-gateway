@@ -1,0 +1,96 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/sebmahr/deploy-gateway/internal/agentauth"
+	"github.com/sebmahr/deploy-gateway/internal/auth"
+	"github.com/sebmahr/deploy-gateway/internal/service"
+	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
+	"github.com/sebmahr/deploy-gateway/internal/store"
+)
+
+func TestHashPassword(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if code := hashPassword(strings.NewReader("a long enough secret\n"), &out, &errOut); code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut.String())
+	}
+	h := strings.TrimSpace(out.String())
+	if !auth.CheckPassword(h, "a long enough secret") {
+		t.Fatalf("hash %q does not verify", h)
+	}
+	out.Reset()
+	if code := hashPassword(strings.NewReader("short\n"), &out, &errOut); code == 0 || out.Len() != 0 {
+		t.Fatal("short password must be rejected")
+	}
+}
+
+type fakeMounts struct {
+	src         string
+	inContainer bool
+	err         error
+}
+
+func (f fakeMounts) MountSource(context.Context, string, string) (string, bool, error) {
+	return f.src, f.inContainer, f.err
+}
+
+func TestCheckSameMount(t *testing.T) {
+	root := "/home/sebastian/docker/deploy-gateway/workspaces"
+	cases := []struct {
+		name    string
+		m       fakeMounts
+		wantErr bool
+	}{
+		{"on host", fakeMounts{inContainer: false}, false},
+		{"same path", fakeMounts{src: root, inContainer: true}, false},
+		{"different host path", fakeMounts{src: "/var/lib/other", inContainer: true}, true},
+		{"not mounted", fakeMounts{src: "", inContainer: true}, true},
+		{"inspect error", fakeMounts{err: errors.New("boom")}, true},
+	}
+	for _, c := range cases {
+		err := checkSameMount(context.Background(), c.m, "abc123", root)
+		if (err != nil) != c.wantErr {
+			t.Errorf("%s: err = %v", c.name, err)
+		}
+	}
+}
+
+type fakePinger struct{ err error }
+
+func (f fakePinger) Ping(context.Context) error { return f.err }
+
+func TestAgentHandlerHealthz(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	compose, docker := &servicetest.FakeCompose{}, servicetest.NewFakeDocker()
+	svc := service.New(st, compose, docker, t.TempDir())
+	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, time.Hour)}
+	for _, c := range []struct {
+		err  error
+		want int
+	}{{nil, 200}, {errors.New("down"), 503}} {
+		h := agentHandler(svc, authn, fakePinger{c.err})
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil))
+		if w.Code != c.want {
+			t.Errorf("healthz with ping err %v: %d", c.err, w.Code)
+		}
+	}
+	w := httptest.NewRecorder()
+	agentHandler(svc, authn, fakePinger{}).ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/whoami", nil))
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("api without token: %d", w.Code)
+	}
+}

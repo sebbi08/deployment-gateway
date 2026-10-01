@@ -1,0 +1,231 @@
+// Command deploy-gateway runs the deployment gateway (see README.md).
+package main
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/exec"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/sebmahr/deploy-gateway/internal/admin"
+	"github.com/sebmahr/deploy-gateway/internal/agentauth"
+	"github.com/sebmahr/deploy-gateway/internal/api"
+	"github.com/sebmahr/deploy-gateway/internal/auth"
+	"github.com/sebmahr/deploy-gateway/internal/config"
+	"github.com/sebmahr/deploy-gateway/internal/dockerx"
+	"github.com/sebmahr/deploy-gateway/internal/mcpserver"
+	"github.com/sebmahr/deploy-gateway/internal/runner"
+	"github.com/sebmahr/deploy-gateway/internal/service"
+	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebmahr/deploy-gateway/internal/webui"
+)
+
+var version = "dev"
+
+func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	cmd := "serve"
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
+	}
+	switch cmd {
+	case "hash-password":
+		os.Exit(hashPassword(os.Stdin, os.Stdout, os.Stderr))
+	case "serve":
+		cfg, err := config.Load(os.Getenv)
+		if err != nil {
+			logger.Error("invalid configuration", "err", err)
+			os.Exit(2)
+		}
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		if err := serve(ctx, cfg, logger); err != nil {
+			logger.Error("fatal", "err", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintln(os.Stderr, "usage: deploy-gateway [serve|hash-password]")
+		os.Exit(2)
+	}
+}
+
+// hashPassword reads one line from in and prints its argon2id hash.
+func hashPassword(in io.Reader, out, errOut io.Writer) int {
+	fmt.Fprint(errOut, "Password (min. 12 characters): ")
+	line, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	pw := strings.TrimRight(line, "\r\n")
+	if len(pw) < 12 {
+		fmt.Fprintln(errOut, "password must be at least 12 characters")
+		return 1
+	}
+	h, err := auth.HashPassword(pw)
+	if err != nil {
+		fmt.Fprintln(errOut, err)
+		return 1
+	}
+	fmt.Fprintln(out, h)
+	return 0
+}
+
+type mountInspector interface {
+	MountSource(ctx context.Context, containerID, destination string) (string, bool, error)
+}
+
+// checkSameMount enforces that WORKSPACES_ROOT is bind-mounted from the
+// identical host path, because the Docker daemon resolves bind sources on
+// the host. Running directly on the host passes trivially.
+func checkSameMount(ctx context.Context, m mountInspector, self, root string) error {
+	src, inContainer, err := m.MountSource(ctx, self, root)
+	if err != nil {
+		return fmt.Errorf("inspect own container %q: %w", self, err)
+	}
+	if !inContainer {
+		return nil
+	}
+	if src != root {
+		return fmt.Errorf("WORKSPACES_ROOT %s must be bind-mounted from the identical host path (found %q)", root, src)
+	}
+	return nil
+}
+
+type pinger interface{ Ping(context.Context) error }
+
+func agentHandler(svc *service.Service, authn *agentauth.Authenticator, p pinger) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("/mcp", mcpserver.Handler(mcpserver.New(svc, version), authn))
+	mux.Handle("/api/v1/", (&api.Handler{Svc: svc, Auth: authn}).Routes())
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		if err := p.Ping(r.Context()); err != nil {
+			http.Error(w, "degraded: docker unreachable", http.StatusServiceUnavailable)
+			return
+		}
+		fmt.Fprintln(w, "ok")
+	})
+	return mux
+}
+
+func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+	root, err := filepath.EvalSymlinks(cfg.WorkspacesRoot)
+	if err != nil {
+		return fmt.Errorf("WORKSPACES_ROOT: %w", err)
+	}
+	if root != cfg.WorkspacesRoot {
+		return fmt.Errorf("WORKSPACES_ROOT must not contain symlinks (resolves to %s)", root)
+	}
+	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+		return err
+	}
+	st, err := store.Open(filepath.Join(cfg.DataDir, "deploy-gateway.db"))
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+
+	dc, err := dockerx.New()
+	if err != nil {
+		return err
+	}
+	if err := dc.Ping(ctx); err != nil {
+		return fmt.Errorf("docker unreachable: %w", err)
+	}
+	self, _ := os.Hostname()
+	if err := checkSameMount(ctx, dc, self, root); err != nil {
+		return err
+	}
+	if out, err := exec.CommandContext(ctx, cfg.ComposeBin, "version", "--short").CombinedOutput(); err != nil {
+		return fmt.Errorf("compose binary %s not usable: %v: %s", cfg.ComposeBin, err, out)
+	}
+
+	run := runner.New(runner.Options{Bin: cfg.ComposeBin, DockerConfig: cfg.DockerConfig, DockerHost: cfg.DockerHost,
+		Timeout: cfg.DeployTimeout, Concurrency: cfg.DeployConcurrency})
+	svc := service.New(st, run, dc, root)
+	svc.Logger = logger
+	warnMissingNetworks(ctx, st, dc, logger)
+	if orphans, err := svc.Orphans(ctx); err == nil && len(orphans) > 0 {
+		logger.Warn("orphaned gateway containers found; see the admin UI", "count", len(orphans))
+	}
+
+	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute), TrustedProxies: cfg.TrustedProxies}
+	adminSrv := admin.New(admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
+		TrustedProxies: cfg.AdminTrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
+	servers := []*http.Server{
+		{Addr: cfg.AgentListen, Handler: agentHandler(svc, authn, dc), ReadHeaderTimeout: 10 * time.Second,
+			WriteTimeout: cfg.DeployTimeout + 2*time.Minute, IdleTimeout: 2 * time.Minute},
+		{Addr: cfg.AdminListen, Handler: adminSrv.Handler(), ReadHeaderTimeout: 10 * time.Second,
+			WriteTimeout: cfg.DeployTimeout + 2*time.Minute, IdleTimeout: 2 * time.Minute},
+	}
+	go pruneAudit(ctx, st, logger)
+
+	errc := make(chan error, len(servers))
+	for _, srv := range servers {
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errc <- err
+			}
+		}()
+	}
+	mode := "password"
+	if cfg.ProxyMode() {
+		mode = "proxy"
+	}
+	logger.Info("deploy-gateway started", "version", version, "agent", cfg.AgentListen, "admin", cfg.AdminListen, "admin_auth", mode, "root", root)
+
+	select {
+	case <-ctx.Done():
+	case err := <-errc:
+		return err
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	for _, srv := range servers {
+		srv.Shutdown(shutdownCtx)
+	}
+	return nil
+}
+
+func warnMissingNetworks(ctx context.Context, st *store.Store, dc *dockerx.Client, logger *slog.Logger) {
+	templates, err := st.ListTemplates(ctx)
+	if err != nil {
+		logger.Warn("cannot list templates", "err", err)
+		return
+	}
+	for _, t := range templates {
+		for _, n := range t.Networks {
+			if ok, err := dc.NetworkExists(ctx, n); err != nil || !ok {
+				logger.Warn("template network missing", "template", t.Name, "network", n, "err", err)
+			}
+		}
+	}
+}
+
+func pruneAudit(ctx context.Context, st *store.Store, logger *slog.Logger) {
+	tick := time.NewTicker(time.Hour)
+	defer tick.Stop()
+	for {
+		days, err := st.AuditRetentionDays(ctx)
+		if err == nil {
+			if n, err := st.PruneAudit(ctx, time.Now().AddDate(0, 0, -days)); err == nil && n > 0 {
+				logger.Info("pruned audit log", "rows", n)
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
