@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -115,5 +117,18 @@ func TestRejectsBadToken(t *testing.T) {
 	url, _ := setup(t)
 	if _, err := connect(t, url, "dgw_"+strings.Repeat("x", 43)); err == nil {
 		t.Fatal("connect with a bad token must fail")
+	}
+}
+
+func TestToolErrorMasksNonServiceErrors(t *testing.T) {
+	se := &service.Error{Code: service.CodeNotFound, Message: "no such app"}
+	if got := toolError(se); got.Error() != se.Error() || !strings.Contains(got.Error(), "no such app") {
+		t.Fatalf("service error altered: %q", got)
+	}
+	for _, in := range []error{errors.New("open /srv/secret: permission denied"), fmt.Errorf("wrap: %w", errors.New("/srv/secret"))} {
+		got := toolError(in).Error()
+		if got != `{"code":"internal","message":"internal error"}` || strings.Contains(got, "/srv/secret") {
+			t.Fatalf("not masked: %q", got)
+		}
 	}
 }

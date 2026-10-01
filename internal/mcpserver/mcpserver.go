@@ -74,11 +74,20 @@ func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, fn func(context.Context, s
 		}
 		out, err := fn(ctx, p, in)
 		if err != nil {
-			// service.Error.Error() is JSON, so the agent receives a structured error text.
-			return nil, zero, err
+			return nil, zero, toolError(err)
 		}
 		return nil, out, nil
 	})
+}
+
+// toolError passes *service.Error through (its Error() is JSON, so the agent
+// receives structured text) and masks everything else as an internal error.
+func toolError(err error) error {
+	var se *service.Error
+	if !errors.As(err, &se) {
+		se = &service.Error{Code: service.CodeInternal, Message: "internal error"}
+	}
+	return se
 }
 
 func principal(req *mcp.CallToolRequest) (service.Principal, error) {
