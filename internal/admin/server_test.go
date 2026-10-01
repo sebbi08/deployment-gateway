@@ -204,3 +204,32 @@ func TestUnknownEndpointIsJSON404(t *testing.T) {
 		t.Fatalf("got %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestLoginConcurrencyBounded(t *testing.T) {
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Options{PasswordHash: hash, UI: builtUI})
+	h := s.Handler()
+	login := func() *httptest.ResponseRecorder {
+		b, _ := json.Marshal(map[string]string{"password": "correct horse battery"})
+		r := httptest.NewRequest("POST", "/api/admin/login", bytes.NewReader(b))
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for i := 0; i < cap(s.loginSlots); i++ {
+		s.loginSlots <- struct{}{}
+	}
+	w := login()
+	if w.Code != http.StatusTooManyRequests || decode[apiError](t, w).Code != "rate_limited" {
+		t.Fatalf("slots full: %d %s", w.Code, w.Body.String())
+	}
+	for i := 0; i < cap(s.loginSlots); i++ {
+		<-s.loginSlots
+	}
+	if w := login(); w.Code != http.StatusNoContent {
+		t.Fatalf("after drain: %d %s", w.Code, w.Body.String())
+	}
+}

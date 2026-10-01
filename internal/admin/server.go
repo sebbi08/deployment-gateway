@@ -40,13 +40,15 @@ type Server struct {
 	opts     Options
 	sessions *auth.Sessions
 	limiter  *auth.Limiter
+	// loginSlots bounds concurrent (memory-hungry) argon2id checks.
+	loginSlots chan struct{}
 }
 
 func New(o Options) *Server {
 	if o.Logger == nil {
 		o.Logger = slog.Default()
 	}
-	return &Server{opts: o, sessions: auth.NewSessions(12 * time.Hour), limiter: auth.NewLimiter(10, 15*time.Minute, 15*time.Minute)}
+	return &Server{opts: o, sessions: auth.NewSessions(12 * time.Hour), limiter: auth.NewLimiter(10, 15*time.Minute, 15*time.Minute), loginSlots: make(chan struct{}, 2)}
 }
 
 func (s *Server) proxyMode() bool { return s.opts.PasswordHash == "" }
@@ -149,6 +151,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := decodeJSON(w, r, &body); err != nil {
 		badRequest(w, err)
+		return
+	}
+	select {
+	case s.loginSlots <- struct{}{}:
+		defer func() { <-s.loginSlots }()
+	default:
+		writeJSON(w, http.StatusTooManyRequests, apiError{Code: "rate_limited", Message: "too many concurrent login attempts; try again"})
 		return
 	}
 	if !auth.CheckPassword(s.opts.PasswordHash, body.Password) {
