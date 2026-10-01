@@ -19,7 +19,11 @@ export function Layout({ me, children }: { me: Me; children: ReactNode }) {
   const queryClient = useQueryClient();
   const { setColorScheme } = useMantineColorScheme();
   const scheme = useComputedColorScheme("light");
-  const logout = useMutation({ mutationFn: api.logout, onSuccess: () => queryClient.clear() });
+  const logout = useMutation({ mutationFn: api.logout, onSuccess: () => {
+      queryClient.removeQueries({ predicate: (q) => q.queryKey[0] !== "me" });
+      return queryClient.resetQueries({ queryKey: ["me"] });
+    },
+  });
 
   return (
     <AppShell header={{ height: 56 }} navbar={{ width: 220, breakpoint: "sm" }} padding="lg">

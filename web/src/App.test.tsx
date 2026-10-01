@@ -39,3 +39,18 @@ test("proxy-mode auth errors are shown instead of a login form", async () => {
   expect(await screen.findByText("identity header missing")).toBeInTheDocument();
   expect(screen.queryByLabelText(/admin password/i)).not.toBeInTheDocument();
 });
+
+test("logout returns to the login form", async () => {
+  let loggedIn = true;
+  mockApi({
+    "GET /me": () => (loggedIn ? { body: { actor: "admin", proxy_mode: false } } : { status: 401, body: { code: "login_required", message: "login required" } }),
+    "POST /logout": () => {
+      loggedIn = false;
+      return { status: 204 };
+    },
+    "GET /dashboard": { body: dashboard },
+  });
+  renderWithProviders(<App />);
+  await userEvent.click(await screen.findByRole("button", { name: "Log out" }));
+  expect(await screen.findByLabelText(/admin password/i)).toBeInTheDocument();
+});
