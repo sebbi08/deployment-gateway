@@ -4,8 +4,13 @@ import { Route, Routes } from "react-router";
 import { ApiError, api } from "./api";
 import { ErrorAlert } from "./components/ErrorAlert";
 import { Layout } from "./components/Layout";
+import { Audit } from "./pages/Audit";
 import { Dashboard } from "./pages/Dashboard";
 import { Login } from "./pages/Login";
+import { Orphans } from "./pages/Orphans";
+import { Settings } from "./pages/Settings";
+import { TemplateEditor } from "./pages/TemplateEditor";
+import { Templates } from "./pages/Templates";
 import { WorkspaceDetail } from "./pages/WorkspaceDetail";
 import { Workspaces } from "./pages/Workspaces";
 
@@ -49,6 +54,12 @@ export function App() {
         <Route path="/" element={<Dashboard />} />
         <Route path="/workspaces" element={<Workspaces />} />
         <Route path="/workspaces/:name" element={<WorkspaceDetail />} />
+        <Route path="/templates" element={<Templates />} />
+        <Route path="/templates/new" element={<TemplateEditor />} />
+        <Route path="/templates/:id" element={<TemplateEditor />} />
+        <Route path="/audit" element={<Audit />} />
+        <Route path="/settings" element={<Settings />} />
+        <Route path="/orphans" element={<Orphans />} />
         <Route path="*" element={<Text>Page not found.</Text>} />
       </Routes>
     </Layout>
