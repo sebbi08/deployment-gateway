@@ -1,0 +1,7 @@
+/deploy-gateway
+/data/
+/workspaces/
+.env
+*.db
+*.db-wal
+*.db-shm
