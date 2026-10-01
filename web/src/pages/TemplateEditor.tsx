@@ -88,6 +88,7 @@ export function TemplateEditor() {
     mutationFn: () => (id > 0 ? api.updateTemplate(id, toTemplate(draft)) : api.createTemplate(toTemplate(draft))),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["templates"] });
+      queryClient.removeQueries({ queryKey: ["template", id] });
       notifications.show({ color: "green", message: `Template ${draft.name} saved` });
       navigate("/templates");
     },

@@ -49,3 +49,32 @@ test("live preview shows errors and hosts, then saves", async () => {
     labels: { "traefik.enable": "true" },
   });
 });
+
+test("editing loads the stored template and saves changes via PUT", async () => {
+  const stored = { id: 7, name: "public-web", description: "old", host_pattern: "{{app}}.{{workspace}}.apps.example.com", networks: ["apps"], labels: { "traefik.enable": "true" } };
+  const calls = mockApi({
+    "GET /templates/7": { body: stored },
+    "POST /templates/preview": { body: { valid: true, errors: [], host: "shop.alice.apps.example.com", labels: [] } },
+    "PUT /templates/7": (b) => ({ body: { id: 7, ...b } }),
+  });
+  renderWithProviders(
+    <Routes>
+      <Route path="/templates/:id" element={<TemplateEditor />} />
+      <Route path="/templates" element={<div>template list</div>} />
+    </Routes>,
+    "/templates/7",
+  );
+  expect(await screen.findByLabelText(/^Name/)).toHaveValue("public-web");
+  const desc = screen.getByLabelText(/^Description/);
+  await userEvent.clear(desc);
+  await userEvent.type(desc, "new");
+  await userEvent.click(screen.getByRole("button", { name: "Save template" }));
+  expect(await screen.findByText("template list")).toBeInTheDocument();
+  expect(calls.find((c) => c.method === "PUT" && c.path === "/templates/7")?.body).toEqual({
+    name: "public-web",
+    description: "new",
+    host_pattern: "{{app}}.{{workspace}}.apps.example.com",
+    networks: ["apps"],
+    labels: { "traefik.enable": "true" },
+  });
+});
