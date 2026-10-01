@@ -49,15 +49,19 @@ func TestCheckSameMount(t *testing.T) {
 		name    string
 		m       fakeMounts
 		wantErr bool
+		cont    bool
 	}{
-		{"on host", fakeMounts{inContainer: false}, false},
-		{"same path", fakeMounts{src: root, inContainer: true}, false},
-		{"different host path", fakeMounts{src: "/var/lib/other", inContainer: true}, true},
-		{"not mounted", fakeMounts{src: "", inContainer: true}, true},
-		{"inspect error", fakeMounts{err: errors.New("boom")}, true},
+		{"container, own container not found", fakeMounts{inContainer: false}, true, true},
+		{"host, not found", fakeMounts{inContainer: false}, false, false},
+		{"container, same path", fakeMounts{src: root, inContainer: true}, false, true},
+		{"on host", fakeMounts{inContainer: false}, false, false},
+		{"same path", fakeMounts{src: root, inContainer: true}, false, false},
+		{"different host path", fakeMounts{src: "/var/lib/other", inContainer: true}, true, false},
+		{"not mounted", fakeMounts{src: "", inContainer: true}, true, false},
+		{"inspect error", fakeMounts{err: errors.New("boom")}, true, false},
 	}
 	for _, c := range cases {
-		err := checkSameMount(context.Background(), c.m, "abc123", root)
+		err := checkSameMount(context.Background(), c.m, "abc123", root, c.cont)
 		if (err != nil) != c.wantErr {
 			t.Errorf("%s: err = %v", c.name, err)
 		}

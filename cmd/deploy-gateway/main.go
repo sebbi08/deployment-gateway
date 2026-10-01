@@ -88,12 +88,18 @@ type mountInspector interface {
 // checkSameMount enforces that WORKSPACES_ROOT is bind-mounted from the
 // identical host path, because the Docker daemon resolves bind sources on
 // the host. Running directly on the host passes trivially.
-func checkSameMount(ctx context.Context, m mountInspector, self, root string) error {
+//
+// containerized is detected independently (/.dockerenv); when true, failing
+// to find our own container is an error rather than "running on the host".
+func checkSameMount(ctx context.Context, m mountInspector, self, root string, containerized bool) error {
 	src, inContainer, err := m.MountSource(ctx, self, root)
 	if err != nil {
 		return fmt.Errorf("inspect own container %q: %w", self, err)
 	}
 	if !inContainer {
+		if containerized {
+			return fmt.Errorf("running in a container but cannot find own container %q; leave the container hostname at its default or set SELF_CONTAINER_ID", self)
+		}
 		return nil
 	}
 	if src != root {
@@ -142,8 +148,16 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	if err := dc.Ping(ctx); err != nil {
 		return fmt.Errorf("docker unreachable: %w", err)
 	}
-	self, _ := os.Hostname()
-	if err := checkSameMount(ctx, dc, self, root); err != nil {
+	// SELF_CONTAINER_ID (optional) names this container when its hostname
+	// was overridden; defaults to the hostname (= short container ID).
+	self := os.Getenv("SELF_CONTAINER_ID")
+	if self == "" {
+		if self, err = os.Hostname(); err != nil {
+			return fmt.Errorf("hostname: %w", err)
+		}
+	}
+	_, statErr := os.Stat("/.dockerenv")
+	if err := checkSameMount(ctx, dc, self, root, statErr == nil); err != nil {
 		return err
 	}
 	if out, err := exec.CommandContext(ctx, cfg.ComposeBin, "version", "--short").CombinedOutput(); err != nil {
@@ -216,11 +230,12 @@ func pruneAudit(ctx context.Context, st *store.Store, logger *slog.Logger) {
 	tick := time.NewTicker(time.Hour)
 	defer tick.Stop()
 	for {
-		days, err := st.AuditRetentionDays(ctx)
-		if err == nil {
-			if n, err := st.PruneAudit(ctx, time.Now().AddDate(0, 0, -days)); err == nil && n > 0 {
-				logger.Info("pruned audit log", "rows", n)
-			}
+		if days, err := st.AuditRetentionDays(ctx); err != nil {
+			logger.Warn("audit retention lookup failed", "err", err)
+		} else if n, err := st.PruneAudit(ctx, time.Now().AddDate(0, 0, -days)); err != nil {
+			logger.Warn("audit prune failed", "err", err)
+		} else if n > 0 {
+			logger.Info("pruned audit log", "rows", n)
 		}
 		select {
 		case <-ctx.Done():
