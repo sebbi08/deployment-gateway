@@ -45,8 +45,8 @@ func testInput(t *testing.T) Input {
 			HostPattern: "{{app}}.{{workspace}}.apps.example.com",
 			Networks:    []string{"apps"},
 			Labels: map[string]string{
-				"traefik.enable":                   "true",
-				"traefik.http.routers.{{id}}.rule": "Host(`{{host}}`)",
+				"traefik.enable":                                        "true",
+				"traefik.http.routers.{{id}}.rule":                      "Host(`{{host}}`)",
 				"traefik.http.services.{{id}}.loadbalancer.server.port": "{{port}}",
 				"x.regex": "^/api$",
 			},

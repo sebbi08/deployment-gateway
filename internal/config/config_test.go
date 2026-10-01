@@ -43,14 +43,14 @@ func TestLoadErrors(t *testing.T) {
 		return map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": "$argon2id$x"}
 	}
 	cases := map[string]func(map[string]string){
-		"missing root":      func(m map[string]string) { delete(m, "WORKSPACES_ROOT") },
-		"relative root":     func(m map[string]string) { m["WORKSPACES_ROOT"] = "workspaces" },
-		"unclean root":      func(m map[string]string) { m["WORKSPACES_ROOT"] = "/srv/dg/../x" },
-		"proxy incomplete":  func(m map[string]string) { delete(m, "ADMIN_PASSWORD_HASH"); m["ADMIN_USER_HEADER"] = "Remote-User" },
-		"bad hash":          func(m map[string]string) { m["ADMIN_PASSWORD_HASH"] = "plaintext" },
-		"bad proxies":       func(m map[string]string) { m["TRUSTED_PROXIES"] = "not-an-ip" },
-		"bad timeout":       func(m map[string]string) { m["DEPLOY_TIMEOUT"] = "1s" },
-		"bad concurrency":   func(m map[string]string) { m["DEPLOY_CONCURRENCY"] = "0" },
+		"missing root":     func(m map[string]string) { delete(m, "WORKSPACES_ROOT") },
+		"relative root":    func(m map[string]string) { m["WORKSPACES_ROOT"] = "workspaces" },
+		"unclean root":     func(m map[string]string) { m["WORKSPACES_ROOT"] = "/srv/dg/../x" },
+		"proxy incomplete": func(m map[string]string) { delete(m, "ADMIN_PASSWORD_HASH"); m["ADMIN_USER_HEADER"] = "Remote-User" },
+		"bad hash":         func(m map[string]string) { m["ADMIN_PASSWORD_HASH"] = "plaintext" },
+		"bad proxies":      func(m map[string]string) { m["TRUSTED_PROXIES"] = "not-an-ip" },
+		"bad timeout":      func(m map[string]string) { m["DEPLOY_TIMEOUT"] = "1s" },
+		"bad concurrency":  func(m map[string]string) { m["DEPLOY_CONCURRENCY"] = "0" },
 	}
 	for name, f := range cases {
 		m := base()
