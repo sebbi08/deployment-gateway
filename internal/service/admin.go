@@ -6,8 +6,12 @@ import (
 	"fmt"
 	"net/netip"
 	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/sebmahr/deploy-gateway/internal/auth"
+	"github.com/sebmahr/deploy-gateway/internal/dockerx"
 	"github.com/sebmahr/deploy-gateway/internal/names"
 	"github.com/sebmahr/deploy-gateway/internal/store"
 	"github.com/sebmahr/deploy-gateway/internal/tmpl"
@@ -99,4 +103,147 @@ func (s *Service) SaveTemplate(ctx context.Context, actor string, id int64, t tm
 func (s *Service) SetGrants(ctx context.Context, actor string, w store.Workspace, templateIDs []int64) (err error) {
 	defer s.adminTrack(ctx, actor, w.Name, "set_grants", templateIDs, &err, time.Now())
 	return s.Store.SetGrants(ctx, w.ID, templateIDs)
+}
+
+func (s *Service) UpdateWorkspace(ctx context.Context, actor string, w store.Workspace) (err error) {
+	defer s.adminTrack(ctx, actor, w.Name, "update_workspace", w, &err, time.Now())
+	if err = w.Quota.Validate(); err != nil {
+		return validationError("quota", err.Error())
+	}
+	if err = s.validatePortSettings(ctx, PortSettings{Start: w.PortRangeStart, End: w.PortRangeEnd, BindIP: w.PortBindIP}, w.ID); err != nil {
+		return err
+	}
+	claims, err := s.Store.ListPortClaims(ctx, w.ID)
+	if err != nil {
+		return err
+	}
+	for _, c := range claims {
+		if w.PortRangeStart == 0 || c.HostPort < w.PortRangeStart || c.HostPort > w.PortRangeEnd {
+			return validationError("ports", fmt.Sprintf("app %q publishes port %d outside the new range; redeploy or delete it first", c.App, c.HostPort))
+		}
+	}
+	return s.Store.UpdateWorkspace(ctx, w)
+}
+
+func (s *Service) DeleteWorkspace(ctx context.Context, actor string, w store.Workspace) (err error) {
+	defer s.adminTrack(ctx, actor, w.Name, "delete_workspace", nil, &err, time.Now())
+	apps, err := s.Store.ListApps(ctx, w.ID)
+	if err != nil {
+		return err
+	}
+	for _, a := range apps {
+		if err = s.deleteApp(ctx, w, a.Name); err != nil {
+			return err
+		}
+	}
+	dir := s.workspaceDir(w.Name)
+	if !names.ValidWorkspace(w.Name) || filepath.Dir(dir) != s.Root {
+		return errors.New("refusing to remove unexpected path " + dir)
+	}
+	if err = os.RemoveAll(dir); err != nil {
+		return err
+	}
+	return s.Store.DeleteWorkspace(ctx, w.ID)
+}
+
+func (s *Service) CreateToken(ctx context.Context, actor string, w store.Workspace, label string) (token string, err error) {
+	defer s.adminTrack(ctx, actor, w.Name, "create_token", map[string]string{"label": label}, &err, time.Now())
+	label = strings.TrimSpace(label)
+	if label == "" || len(label) > 100 {
+		return "", validationError("label", "label must be 1-100 characters")
+	}
+	var hash, prefix string
+	if token, hash, prefix, err = auth.GenerateToken(); err != nil {
+		return "", err
+	}
+	if _, err = s.Store.CreateToken(ctx, w.ID, label, hash, prefix); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+func (s *Service) RevokeToken(ctx context.Context, actor string, w store.Workspace, id int64) (err error) {
+	defer s.adminTrack(ctx, actor, w.Name, "revoke_token", map[string]int64{"id": id}, &err, time.Now())
+	t, err := s.Store.GetToken(ctx, id)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && t.WorkspaceID != w.ID) {
+		return notFoundError("token")
+	}
+	if err != nil {
+		return err
+	}
+	return s.Store.RevokeToken(ctx, id)
+}
+
+func (s *Service) DeleteTemplate(ctx context.Context, actor string, id int64) (err error) {
+	defer s.adminTrack(ctx, actor, "", "delete_template", map[string]int64{"id": id}, &err, time.Now())
+	err = s.Store.DeleteTemplate(ctx, id)
+	if errors.Is(err, store.ErrInUse) {
+		return validationError("template", "template is granted to at least one workspace; revoke the grants first")
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return notFoundError("template")
+	}
+	return err
+}
+
+func (s *Service) AdminApps(ctx context.Context, w store.Workspace) ([]AppView, error) {
+	return s.appViews(ctx, w)
+}
+
+func (s *Service) AdminStopApp(ctx context.Context, actor string, w store.Workspace, app string) (err error) {
+	defer s.adminTrack(ctx, actor, w.Name, "stop_app", map[string]string{"app": app}, &err, time.Now())
+	_, err = s.lifecycle(ctx, w, app, "", s.Compose.Stop)
+	return err
+}
+
+func (s *Service) AdminDeleteApp(ctx context.Context, actor string, w store.Workspace, app string) (err error) {
+	defer s.adminTrack(ctx, actor, w.Name, "delete_app", map[string]string{"app": app}, &err, time.Now())
+	return s.deleteApp(ctx, w, app)
+}
+
+// Orphans are gateway-labelled containers whose workspace/app is unknown.
+func (s *Service) Orphans(ctx context.Context) ([]dockerx.ContainerInfo, error) {
+	keys, err := s.Store.AppKeys(ctx)
+	if err != nil {
+		return nil, err
+	}
+	all, err := s.Docker.ManagedContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []dockerx.ContainerInfo{}
+	for _, c := range all {
+		if !keys[c.Labels[names.LabelWorkspace]+"/"+c.Labels[names.LabelApp]] {
+			out = append(out, c)
+		}
+	}
+	return out, nil
+}
+
+func (s *Service) RemoveOrphan(ctx context.Context, actor, id string) (err error) {
+	defer s.adminTrack(ctx, actor, "", "remove_orphan", map[string]string{"id": id}, &err, time.Now())
+	orphans, err := s.Orphans(ctx)
+	if err != nil {
+		return err
+	}
+	for _, o := range orphans {
+		if o.ID == id {
+			return s.Docker.RemoveContainer(ctx, id)
+		}
+	}
+	return notFoundError("orphan container")
+}
+
+func (s *Service) UpdateSettings(ctx context.Context, actor string, q store.Quota, retentionDays int) (err error) {
+	defer s.adminTrack(ctx, actor, "", "update_settings", map[string]any{"default_quota": q, "audit_retention_days": retentionDays}, &err, time.Now())
+	if err = q.Validate(); err != nil {
+		return validationError("default_quota", err.Error())
+	}
+	if retentionDays < 1 || retentionDays > 3650 {
+		return validationError("audit_retention_days", "audit retention must be 1-3650 days")
+	}
+	if err = s.Store.SetDefaultQuota(ctx, q); err != nil {
+		return err
+	}
+	return s.Store.SetAuditRetentionDays(ctx, retentionDays)
 }

@@ -2,8 +2,13 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/sebmahr/deploy-gateway/internal/dockerx"
+	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebmahr/deploy-gateway/internal/store"
 )
 
 const namingDoc = "Containers, compose services and DNS names are <workspace>-<app>-<service>. " +
@@ -52,4 +57,106 @@ func (s *Service) ListTemplates(ctx context.Context, p Principal) (res Templates
 		res.Templates = append(res.Templates, TemplateView{Name: t.Name, Description: t.Description, HostPattern: t.HostPattern, Shareable: t.Template.Shareable()})
 	}
 	return res, nil
+}
+
+func (s *Service) List(ctx context.Context, p Principal) (res ListResult, err error) {
+	defer s.track(ctx, p, "list", nil, &err, time.Now())
+	apps, err := s.appViews(ctx, p.Workspace)
+	if err != nil {
+		return ListResult{}, err
+	}
+	return ListResult{Apps: apps}, nil
+}
+
+// appViews builds app status from DB records (hosts, claims) plus live
+// container state; it never consults templates.
+func (s *Service) appViews(ctx context.Context, ws store.Workspace) ([]AppView, error) {
+	apps, err := s.Store.ListApps(ctx, ws.ID)
+	if err != nil {
+		return nil, err
+	}
+	claims, err := s.Store.ListPortClaims(ctx, ws.ID)
+	if err != nil {
+		return nil, err
+	}
+	out := []AppView{}
+	for _, a := range apps {
+		var appClaims []store.PortClaim
+		for _, c := range claims {
+			if c.App == a.Name {
+				appClaims = append(appClaims, c)
+			}
+		}
+		st, err := s.status(ctx, ws, a.Name, a.Hosts, appClaims, nil)
+		if err != nil {
+			return nil, err
+		}
+		v := AppView{App: a.Name, Services: st.Services, DiskBytes: s.disk.usage(s.appDir(ws.Name, a.Name)), LastDeployResult: a.LastDeployResult}
+		if a.LastDeployAt != nil {
+			v.LastDeployAt = a.LastDeployAt.UTC().Format(time.RFC3339)
+		}
+		out = append(out, v)
+	}
+	return out, nil
+}
+
+func (s *Service) Logs(ctx context.Context, p Principal, in LogsInput) (res LogsResult, err error) {
+	defer s.track(ctx, p, "logs", in, &err, time.Now())
+	ws := p.Workspace
+	if _, err = s.ownedApp(ctx, ws, in.App); err != nil {
+		return LogsResult{}, err
+	}
+	if !names.ValidService(in.Service) {
+		return LogsResult{}, notFoundError("service")
+	}
+	tail := in.Tail
+	if tail <= 0 {
+		tail = 200
+	}
+	tail = min(tail, 1000)
+	if in.Since != "" && !validSince(in.Since) {
+		return LogsResult{}, validationError("since", "since must be a duration like 10m or an RFC3339 timestamp")
+	}
+	c, err := s.findContainer(ctx, ws.Name, in.App, in.Service)
+	if err != nil {
+		return LogsResult{}, err
+	}
+	logs, err := s.Docker.Logs(ctx, c.ID, tail, in.Since, 256<<10)
+	if err != nil {
+		return LogsResult{}, err
+	}
+	return LogsResult{App: in.App, Service: in.Service, Logs: logs}, nil
+}
+
+func validSince(v string) bool {
+	if _, err := time.ParseDuration(v); err == nil {
+		return true
+	}
+	_, err := time.Parse(time.RFC3339, v)
+	return err == nil
+}
+
+// ownedApp resolves an app strictly within the caller's workspace.
+func (s *Service) ownedApp(ctx context.Context, ws store.Workspace, app string) (store.App, error) {
+	if !names.ValidApp(app) {
+		return store.App{}, notFoundError("app")
+	}
+	a, err := s.Store.GetApp(ctx, ws.ID, app)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.App{}, notFoundError("app")
+	}
+	return a, err
+}
+
+func (s *Service) findContainer(ctx context.Context, ws, app, svc string) (dockerx.ContainerInfo, error) {
+	containers, err := s.Docker.ProjectContainers(ctx, ws, app)
+	if err != nil {
+		return dockerx.ContainerInfo{}, err
+	}
+	for _, c := range containers {
+		if c.Labels[names.LabelWorkspace] == ws && c.Labels[names.LabelApp] == app && c.Labels[names.LabelService] == svc {
+			return c, nil
+		}
+	}
+	return dockerx.ContainerInfo{}, notFoundError("service")
 }
