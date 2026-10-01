@@ -47,19 +47,28 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		return AppStatus{}, err
 	}
 	file, project := s.composeFile(ws.Name, app), names.Project(ws.Name, app)
-	if out, upErr := s.Compose.Up(ctx, file, project); upErr != nil {
-		_ = s.Store.RecordDeploy(ctx, appRec.ID, "failed")
-		msg := "deployment failed: " + upErr.Error() + "\n" + s.sanitize(ws.Name, out) + s.failureLogs(ctx, ws.Name, app)
+	// Teardown and status bookkeeping must survive client disconnects.
+	bg := context.WithoutCancel(ctx)
+	out, upErr := s.Compose.Up(ctx, file, project)
+	// Layer 3 runs even when up failed: --wait can fail while containers exist.
+	if violations := s.runtimeCheck(bg, ws.Name, app, pl); len(violations) > 0 {
+		detail := strings.Join(violations, "; ")
+		msg := "deployment rejected by runtime security check; containers were removed"
+		downOut, downErr := s.Compose.Down(bg, file, project)
+		if downErr != nil {
+			detail += " | compose down failed: " + downErr.Error()
+			msg = "deployment rejected by runtime security check; removing containers failed - an administrator must intervene"
+		}
+		_ = s.Store.RecordDeploy(bg, appRec.ID, CodeSecurity)
+		return AppStatus{}, &Error{Code: CodeSecurity, Message: msg, detail: detail + " | " + downOut, critical: true}
+	}
+	if upErr != nil {
+		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
+		msg := "deployment failed: " + upErr.Error() + "\n" + s.sanitize(ws.Name, out) + s.failureLogs(bg, ws.Name, app)
 		if _, statErr := os.Stat(s.prevFile(ws.Name, app)); statErr == nil {
 			msg += "\nThe previous successful configuration is kept as docker-compose.prev.yml; redeploy the previous stack to roll back."
 		}
 		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: out}
-	}
-	if violations := s.runtimeCheck(ctx, ws.Name, app, pl); len(violations) > 0 {
-		downOut, _ := s.Compose.Down(ctx, file, project)
-		_ = s.Store.RecordDeploy(ctx, appRec.ID, CodeSecurity)
-		return AppStatus{}, &Error{Code: CodeSecurity, Message: "deployment rejected by runtime security check; containers were removed",
-			detail: strings.Join(violations, "; ") + " | " + downOut, critical: true}
 	}
 	if err := s.Store.RecordDeploy(ctx, appRec.ID, "ok"); err != nil {
 		return AppStatus{}, err
@@ -98,6 +107,11 @@ func (s *Service) prepare(ctx context.Context, ws store.Workspace, app string, s
 		}
 		return store.App{}, nil, err
 	}
+	// Persist "pending" so a lost "failed" update can never make the next
+	// deploy rotate a never-successful render into prev.
+	if err := s.Store.RecordDeploy(context.WithoutCancel(ctx), appRec.ID, "pending"); err != nil {
+		return store.App{}, nil, err
+	}
 	cur := s.composeFile(ws.Name, app)
 	if lastOK {
 		if _, err := os.Stat(cur); err == nil {
@@ -123,7 +137,10 @@ func (s *Service) prepareDirs(ws, app string, st *stack.Stack) error {
 			continue
 		}
 		dir := filepath.Join(data, name)
-		if err := os.MkdirAll(dir, 0o750); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+		if err := os.Chmod(dir, 0o755); err != nil {
 			return err
 		}
 		if svc.User != "" {

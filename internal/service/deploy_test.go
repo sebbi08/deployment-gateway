@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -171,5 +172,60 @@ func TestDeployQuotaCountsOtherApps(t *testing.T) {
 	}
 	if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, simple)}); err != nil {
 		t.Fatalf("redeploy of existing app must not count twice: %v", err)
+	}
+}
+
+func TestDeployCancelledUpKeepsLastGoodPrev(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	version := func(v string) service.DeployInput {
+		return service.DeployInput{App: "shop", Stack: mustStack(t, strings.Replace(exampleStack, "shop:1.4.2", "shop:"+v, 1))}
+	}
+	if _, err := h.svc.Deploy(h.ctx, p, version("1.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(h.ctx)
+	var during string
+	h.compose.OnUp = func(file, project string) error {
+		app, _ := h.st.GetApp(h.ctx, p.Workspace.ID, "shop")
+		during = app.LastDeployResult
+		cancel()
+		return errors.New("context canceled")
+	}
+	if _, err := h.svc.Deploy(ctx, p, version("2.0.0")); code(err) != service.CodeDeployFailed {
+		t.Fatalf("expected deploy_failed, got %v", err)
+	}
+	if during != "pending" {
+		t.Fatalf("status during up = %q, want pending", during)
+	}
+	app, _ := h.st.GetApp(h.ctx, p.Workspace.ID, "shop")
+	if app.LastDeployResult != "failed" {
+		t.Fatalf("status after cancelled deploy = %q", app.LastDeployResult)
+	}
+	h.compose.OnUp = nil
+	if _, err := h.svc.Deploy(h.ctx, p, version("3.0.0")); err != nil {
+		t.Fatal(err)
+	}
+	prev, _ := os.ReadFile(filepath.Join(h.root, "alice", "shop", "docker-compose.prev.yml"))
+	if !strings.Contains(string(prev), "shop:1.0.0") {
+		t.Fatalf("prev must still hold 1.0.0:\n%s", prev)
+	}
+}
+
+func TestDeployFailedUpStillRuntimeChecked(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)}); err != nil {
+		t.Fatal(err)
+	}
+	h.docker.MutateFacts("alice-shop-web", func(f *dockerx.Facts) { f.Privileged = true })
+	h.compose.UpErr = errors.New("unhealthy")
+	_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+	if code(err) != service.CodeSecurity {
+		t.Fatalf("expected security_violation, got %v", err)
+	}
+	calls := h.compose.Calls()
+	if calls[len(calls)-1] != "down dg-alice-shop" {
+		t.Fatalf("containers not torn down: %v", calls)
 	}
 }
