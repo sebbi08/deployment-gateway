@@ -97,6 +97,9 @@ func (s *Service) SaveTemplate(ctx context.Context, actor string, id int64, t tm
 	if errors.Is(err, store.ErrExists) {
 		return 0, validationError("name", "a template with this name already exists")
 	}
+	if errors.Is(err, store.ErrNotFound) {
+		return 0, notFoundError("template")
+	}
 	return newID, err
 }
 

@@ -133,3 +133,12 @@ func TestOrphansAPI(t *testing.T) {
 		t.Fatalf("remove_orphan audit = %+v", audit)
 	}
 }
+
+func TestUpdateMissingTemplateIsNotFound(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	c := e.login(t)
+	w := e.do("PUT", "/api/admin/templates/999", publicWebTemplate(), c)
+	if w.Code != http.StatusNotFound || decode[apiError](t, w).Code != "not_found" {
+		t.Fatalf("got %d %s", w.Code, w.Body.String())
+	}
+}
