@@ -69,6 +69,8 @@ func (c *Client) list(ctx context.Context, f client.Filters) ([]ContainerInfo, e
 		}
 		if s.Health != nil {
 			info.Health = string(s.Health.Status)
+		} else {
+			info.Health = healthFromStatus(s.Status)
 		}
 		out = append(out, info)
 	}
