@@ -91,7 +91,8 @@ func Load(getenv func(string) string) (Config, error) {
 	return c, nil
 }
 
-// ParsePrefixes parses a comma-separated list of IPs and CIDRs.
+// ParsePrefixes parses a comma-separated list of IPs and CIDRs. Prefixes of
+// length 0 (0.0.0.0/0, ::/0) are rejected: they would trust every client.
 func ParsePrefixes(s string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
 	for _, part := range strings.Split(s, ",") {
@@ -103,6 +104,9 @@ func ParsePrefixes(s string) ([]netip.Prefix, error) {
 			p, err := netip.ParsePrefix(part)
 			if err != nil {
 				return nil, fmt.Errorf("invalid CIDR %q", part)
+			}
+			if p.Bits() == 0 {
+				return nil, fmt.Errorf("%q would trust every client; list the proxy addresses instead", part)
 			}
 			out = append(out, p.Masked())
 			continue

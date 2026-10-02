@@ -49,6 +49,10 @@ func TestLoadErrors(t *testing.T) {
 		"proxy incomplete": func(m map[string]string) { delete(m, "ADMIN_PASSWORD_HASH"); m["ADMIN_USER_HEADER"] = "Remote-User" },
 		"bad hash":         func(m map[string]string) { m["ADMIN_PASSWORD_HASH"] = "plaintext" },
 		"bad proxies":      func(m map[string]string) { m["TRUSTED_PROXIES"] = "not-an-ip" },
+		"trust all v4":     func(m map[string]string) { m["TRUSTED_PROXIES"] = "10.0.0.1, 0.0.0.0/0" },
+		"trust all v6":     func(m map[string]string) { m["TRUSTED_PROXIES"] = "::/0" },
+		"admin trust all":  func(m map[string]string) { m["ADMIN_TRUSTED_PROXIES"] = "0.0.0.0/0" },
+		"admin trust all6": func(m map[string]string) { m["ADMIN_TRUSTED_PROXIES"] = "::/0" },
 		"bad timeout":      func(m map[string]string) { m["DEPLOY_TIMEOUT"] = "1s" },
 		"bad concurrency":  func(m map[string]string) { m["DEPLOY_CONCURRENCY"] = "0" },
 	}

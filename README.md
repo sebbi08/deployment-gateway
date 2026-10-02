@@ -41,7 +41,7 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
 
 ## Configuration notes
 
-Configuration is read from environment variables (see `deploy/.env.example`): `ADMIN_PASSWORD_HASH`, `ADMIN_TRUSTED_PROXIES` / `ADMIN_USER_HEADER`, `TRUSTED_PROXIES`, `DEPLOY_TIMEOUT`, `DEPLOY_CONCURRENCY`, `WORKSPACES_ROOT`, `DATA_DIR`. Optional: `SELF_CONTAINER_ID` (name or ID of the gateway's own container, e.g. `deploy-gateway`; needed only when the container has a custom `hostname:`, because the startup mount check otherwise finds itself by hostname and fails closed if it cannot).
+Configuration is read from environment variables (see `deploy/.env.example`): `ADMIN_PASSWORD_HASH`, `ADMIN_TRUSTED_PROXIES` / `ADMIN_USER_HEADER`, `TRUSTED_PROXIES`, `DEPLOY_TIMEOUT`, `DEPLOY_CONCURRENCY`, `WORKSPACES_ROOT`, `DATA_DIR`. `ADMIN_TRUSTED_PROXIES` and `TRUSTED_PROXIES` take comma-separated IPs/CIDRs of the reverse proxy (e.g. Traefik's `172.19.0.149`); catch-all prefixes `0.0.0.0/0` and `::/0` are rejected at startup because they would let any client spoof its IP or admin user header. Optional: `SELF_CONTAINER_ID` (name or ID of the gateway's own container, e.g. `deploy-gateway`; needed only when the container has a custom `hostname:`, because the startup mount check otherwise finds itself by hostname and fails closed if it cannot).
 
 ## Admin UI
 
