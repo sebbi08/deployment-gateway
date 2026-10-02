@@ -6,6 +6,7 @@ import (
 	"path"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -112,8 +113,8 @@ func Validate(s *Stack, lim Limits, grants Grants) Errors {
 		if svc.Resources != nil {
 			validateResources(&errs, f+".resources", *svc.Resources, lim)
 		}
-		if svc.User != "" && !userRe.MatchString(svc.User) {
-			errs.add(f+".user", "must be numeric uid:gid, e.g. 999:999")
+		if svc.User != "" && !validUser(svc.User) {
+			errs.add(f+".user", "must be numeric uid:gid (each 0-4294967295), e.g. 999:999")
 		}
 	}
 	for _, t := range slices.Sorted(maps.Keys(templateUse)) {
@@ -299,4 +300,18 @@ func findCycle(s *Stack) string {
 		}
 	}
 	return ""
+}
+
+// validUser accepts "uid:gid" with both parts fitting in 32 bits.
+func validUser(u string) bool {
+	if !userRe.MatchString(u) {
+		return false
+	}
+	uid, gid, _ := strings.Cut(u, ":")
+	for _, n := range []string{uid, gid} {
+		if _, err := strconv.ParseUint(n, 10, 32); err != nil {
+			return false
+		}
+	}
+	return true
 }

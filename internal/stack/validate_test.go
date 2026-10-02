@@ -126,6 +126,8 @@ func TestValidateRejects(t *testing.T) {
 			edit(s, "web", func(v *Service) { v.Resources.Pids = 5 })
 		}, "services.web.resources.pids"},
 		{"user non numeric", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.User = "postgres" }) }, "uid:gid"},
+		{"uid too large", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.User = "4294967296:0" }) }, "services.db.user"},
+		{"gid too large", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.User = "0:9999999999" }) }, "services.db.user"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -164,5 +166,13 @@ func TestEffectiveAndTotals(t *testing.T) {
 	mem, cpus := Totals(s, d)
 	if mem != (256+128)<<20 || cpus != 0.75 {
 		t.Fatalf("totals = %d %v", mem, cpus)
+	}
+}
+
+func TestValidateAcceptsMaxUIDGID(t *testing.T) {
+	s := validStack(t)
+	edit(s, "db", func(v *Service) { v.User = "4294967295:4294967295" })
+	if errs := Validate(s, testLimits(), testGrants()); errs != nil {
+		t.Fatalf("unexpected errors: %v", errs)
 	}
 }
