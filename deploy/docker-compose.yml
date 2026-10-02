@@ -1,6 +1,6 @@
 services:
   deploy-gateway:
-    image: ghcr.io/sebmahr/deploy-gateway:0.1.0
+    image: ghcr.io/sebbi08/deployment-gateway:0.1.0
     container_name: deploy-gateway
     restart: unless-stopped
     env_file: .env

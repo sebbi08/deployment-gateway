@@ -15,9 +15,9 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
 
 ## Setup on the host
 
-1. Build and push the image (or build on the host):
+1. Release the image: on GitHub, run **Actions → Release image → Run workflow** with a version such as `0.1.0`. The workflow runs the Go and frontend tests, pushes `ghcr.io/sebbi08/deployment-gateway:<version>` (amd64) and tags the commit `v<version>`; an existing version is never overwritten. The GHCR package is private by default — either make it public in the package settings or `docker login ghcr.io` on the host. To build locally instead:
    ```bash
-   docker build -t ghcr.io/sebmahr/deploy-gateway:0.1.0 --build-arg VERSION=0.1.0 .
+   docker build -t ghcr.io/sebbi08/deployment-gateway:0.1.0 --build-arg VERSION=0.1.0 .
    ```
 2. Create the stack folder and the workspaces folder:
    ```bash
@@ -27,7 +27,7 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
    ```
 3. Generate the admin password hash and paste it into `.env` (single quotes!):
    ```bash
-   docker run --rm -i ghcr.io/sebmahr/deploy-gateway:0.1.0 hash-password
+   docker run --rm -i ghcr.io/sebbi08/deployment-gateway:0.1.0 hash-password
    ```
 4. Registry access: `docker login <registry>` on the host. `~/.docker/config.json` must contain inline `auths` (no `credsStore`), because it is mounted into the gateway.
 5. Start: `cd ~/docker/deploy-gateway && docker compose up -d && docker logs deploy-gateway`.
