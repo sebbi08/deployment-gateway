@@ -19,7 +19,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 type Policy struct {

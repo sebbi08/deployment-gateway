@@ -27,13 +27,13 @@ func TestLoadDefaultsPasswordMode(t *testing.T) {
 func TestLoadProxyMode(t *testing.T) {
 	c, err := Load(env(map[string]string{
 		"WORKSPACES_ROOT":       "/srv/dg/workspaces",
-		"ADMIN_TRUSTED_PROXIES": "172.19.0.149, 10.0.0.0/8",
+		"ADMIN_TRUSTED_PROXIES": "172.20.0.10, 10.0.0.0/8",
 		"ADMIN_USER_HEADER":     "Remote-User",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.ProxyMode() || len(c.AdminTrustedProxies) != 2 || c.AdminTrustedProxies[0].String() != "172.19.0.149/32" {
+	if !c.ProxyMode() || len(c.AdminTrustedProxies) != 2 || c.AdminTrustedProxies[0].String() != "172.20.0.10/32" {
 		t.Fatalf("unexpected: %+v", c)
 	}
 }

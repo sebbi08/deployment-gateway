@@ -10,8 +10,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

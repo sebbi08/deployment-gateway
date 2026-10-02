@@ -7,11 +7,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 const exampleStack = `{"services": {

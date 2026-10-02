@@ -21,8 +21,8 @@ type Quota struct {
 	MaxPids           int64   `json:"max_pids"`
 }
 
-// BuiltinDefaultQuota is deliberately small: the reference host has 4 cores
-// and 15 GB RAM and already swaps.
+// BuiltinDefaultQuota is deliberately small so a single workspace cannot
+// exhaust a small, shared host.
 func BuiltinDefaultQuota() Quota {
 	return Quota{
 		MaxApps: 5, MaxServicesPerApp: 4,

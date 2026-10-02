@@ -11,8 +11,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 type Compose interface {

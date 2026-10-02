@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func (s *Service) Validate(ctx context.Context, p Principal, in DeployInput) (res ValidateResult, err error) {

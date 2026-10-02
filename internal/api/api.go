@@ -10,9 +10,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
 )
 
 type Handler struct {

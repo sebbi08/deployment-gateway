@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service"
 )
 
 func deployExample(t *testing.T, h *harness, p service.Principal) {

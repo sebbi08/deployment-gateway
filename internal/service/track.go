@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 // track writes one audit row per agent call. Non-*Error errors are replaced

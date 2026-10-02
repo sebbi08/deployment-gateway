@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func TestWhoami(t *testing.T) {

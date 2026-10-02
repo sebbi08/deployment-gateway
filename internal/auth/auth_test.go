@@ -70,9 +70,9 @@ func TestLimiter(t *testing.T) {
 }
 
 func TestClientIP(t *testing.T) {
-	trusted := []netip.Prefix{netip.MustParsePrefix("172.19.0.149/32")}
+	trusted := []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32")}
 	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "172.19.0.149:5555"
+	r.RemoteAddr = "172.20.0.10:5555"
 	r.Header.Set("X-Forwarded-For", "9.9.9.9, 203.0.113.7")
 	if got := ClientIP(r, trusted); got != "203.0.113.7" {
 		t.Fatalf("trusted proxy: got %q", got)
@@ -84,7 +84,7 @@ func TestClientIP(t *testing.T) {
 	if PeerTrusted(r, trusted) {
 		t.Fatal("peer should not be trusted")
 	}
-	r.RemoteAddr = "172.19.0.149:1"
+	r.RemoteAddr = "172.20.0.10:1"
 	if !PeerTrusted(r, trusted) {
 		t.Fatal("peer should be trusted")
 	}

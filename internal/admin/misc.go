@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func (s *Server) miscRoutes(mux *http.ServeMux) {

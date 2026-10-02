@@ -7,8 +7,8 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 type templateDTO struct {

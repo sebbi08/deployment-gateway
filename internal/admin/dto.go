@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 // JSON shapes of the admin API; mirrored in web/src/types.ts.

@@ -1,4 +1,4 @@
-module github.com/sebmahr/deploy-gateway
+module github.com/sebbi08/deployment-gateway
 
 go 1.27
 

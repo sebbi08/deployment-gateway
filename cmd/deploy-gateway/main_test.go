@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func TestHashPassword(t *testing.T) {
@@ -44,7 +44,7 @@ func (f fakeMounts) MountSource(context.Context, string, string) (string, bool, 
 }
 
 func TestCheckSameMount(t *testing.T) {
-	root := "/home/sebastian/docker/deploy-gateway/workspaces"
+	root := "/srv/deploy-gateway/workspaces"
 	cases := []struct {
 		name    string
 		m       fakeMounts

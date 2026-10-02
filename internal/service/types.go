@@ -1,8 +1,8 @@
 package service
 
 import (
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 type NoInput struct{}

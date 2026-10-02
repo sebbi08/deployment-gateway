@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 func openTest(t *testing.T) *Store {

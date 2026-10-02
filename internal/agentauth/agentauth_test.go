@@ -11,8 +11,8 @@ import (
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func setup(t *testing.T) (*Authenticator, string) {

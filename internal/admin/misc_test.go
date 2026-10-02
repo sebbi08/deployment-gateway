@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func TestTemplatesCRUDAndPreview(t *testing.T) {

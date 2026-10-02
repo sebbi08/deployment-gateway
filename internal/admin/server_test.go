@@ -13,10 +13,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 var builtUI = fstest.MapFS{
@@ -186,10 +186,10 @@ func TestProxyMode(t *testing.T) {
 	if w := e.do("GET", "/api/admin/me", nil, trusted); w.Code != http.StatusUnauthorized || decode[apiError](t, w).Code != "unauthorized" {
 		t.Fatalf("missing header: %d %s", w.Code, w.Body.String())
 	}
-	user := func(r *http.Request) { trusted(r); r.Header.Set("Remote-User", "sebastian") }
+	user := func(r *http.Request) { trusted(r); r.Header.Set("Remote-User", "alice-admin") }
 	w := e.do("GET", "/api/admin/me", nil, user)
 	me := decode[map[string]any](t, w)
-	if w.Code != 200 || me["actor"] != "proxy:sebastian" || me["proxy_mode"] != true {
+	if w.Code != 200 || me["actor"] != "proxy:alice-admin" || me["proxy_mode"] != true {
 		t.Fatalf("me: %d %v", w.Code, me)
 	}
 	if w := e.do("POST", "/api/admin/login", map[string]string{"password": "x"}, user); w.Code != http.StatusNotFound {

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 const (

@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Module path: `github.com/sebmahr/deploy-gateway`; `go 1.27` in `go.mod`.
+- Module path: `github.com/sebbi08/deployment-gateway`; `go 1.27` in `go.mod`.
 - Third-party dependencies are limited to: go-sdk v1.8.0, moby client v0.6.0 / api v1.56.0, `github.com/containerd/errdefs` (version pulled by moby client), modernc sqlite v1.60.1, `go.yaml.in/yaml/v3` v3.0.5 (maintained successor of `gopkg.in/yaml.v3`, identical API), `golang.org/x/crypto` v0.57.0. Nothing else.
 - Names: workspace `^[a-z][a-z0-9]{1,15}$`; app `^[a-z][a-z0-9-]{0,22}[a-z0-9]$`; service `^[a-z][a-z0-9]{0,15}$`; template `^[a-z][a-z0-9-]{1,30}$`. Container/compose key/DNS name `<ws>-<app>-<svc>`; compose project and private network `dg-<ws>-<app>`. No short aliases on any network.
 - Owner labels: `deploy-gateway.workspace`, `deploy-gateway.app`, `deploy-gateway.service`, `deploy-gateway.managed=true`.
@@ -124,7 +124,7 @@ web/src/test/                         Vitest setup and helpers
 ```bash
 cd <repo>
 git init
-go mod init github.com/sebmahr/deploy-gateway
+go mod init github.com/sebbi08/deployment-gateway
 go mod edit -go=1.27
 cat > .gitignore <<'EOF'
 /deploy-gateway
@@ -861,7 +861,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 const (
@@ -1356,7 +1356,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 type Template struct {
@@ -1598,8 +1598,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -1925,9 +1925,9 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 type Input struct {
@@ -2271,7 +2271,7 @@ func TestVerifyRejectsMutations(t *testing.T) {
 			w["ports"].([]any)[0].(map[string]any)["published"] = "22"
 		}, "published"},
 		{"wrong host_ip", func(_, w map[string]any) {
-			w["ports"].([]any)[0].(map[string]any)["host_ip"] = "192.168.0.53"
+			w["ports"].([]any)[0].(map[string]any)["host_ip"] = "192.168.1.10"
 		}, "host_ip"},
 		{"foreign network", func(_, w map[string]any) { w["networks"] = []any{"dg-alice-shop", "all"} }, `network "all"`},
 		{"network aliases", func(_, w map[string]any) {
@@ -2377,7 +2377,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 type Policy struct {
@@ -2901,10 +2901,10 @@ package render_test
 import (
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/render"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
-	"github.com/sebmahr/deploy-gateway/internal/verify"
+	"github.com/sebbi08/deployment-gateway/internal/render"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/verify"
 )
 
 var seeds = []string{
@@ -3025,13 +3025,13 @@ func TestLoadDefaultsPasswordMode(t *testing.T) {
 func TestLoadProxyMode(t *testing.T) {
 	c, err := Load(env(map[string]string{
 		"WORKSPACES_ROOT":       "/srv/dg/workspaces",
-		"ADMIN_TRUSTED_PROXIES": "172.19.0.149, 10.0.0.0/8",
+		"ADMIN_TRUSTED_PROXIES": "172.20.0.10, 10.0.0.0/8",
 		"ADMIN_USER_HEADER":     "Remote-User",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.ProxyMode() || len(c.AdminTrustedProxies) != 2 || c.AdminTrustedProxies[0].String() != "172.19.0.149/32" {
+	if !c.ProxyMode() || len(c.AdminTrustedProxies) != 2 || c.AdminTrustedProxies[0].String() != "172.20.0.10/32" {
 		t.Fatalf("unexpected: %+v", c)
 	}
 }
@@ -3248,7 +3248,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 func openTest(t *testing.T) *Store {
@@ -3643,8 +3643,8 @@ type Quota struct {
 	MaxPids           int64   `json:"max_pids"`
 }
 
-// BuiltinDefaultQuota is deliberately small: the reference host has 4 cores
-// and 15 GB RAM and already swaps.
+// BuiltinDefaultQuota is deliberately small so a single workspace cannot
+// exhaust a small, shared host.
 func BuiltinDefaultQuota() Quota {
 	return Quota{
 		MaxApps: 5, MaxServicesPerApp: 4,
@@ -3904,7 +3904,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 type StoredTemplate struct {
@@ -4726,9 +4726,9 @@ func TestLimiter(t *testing.T) {
 }
 
 func TestClientIP(t *testing.T) {
-	trusted := []netip.Prefix{netip.MustParsePrefix("172.19.0.149/32")}
+	trusted := []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32")}
 	r := httptest.NewRequest("GET", "/", nil)
-	r.RemoteAddr = "172.19.0.149:5555"
+	r.RemoteAddr = "172.20.0.10:5555"
 	r.Header.Set("X-Forwarded-For", "9.9.9.9, 203.0.113.7")
 	if got := ClientIP(r, trusted); got != "203.0.113.7" {
 		t.Fatalf("trusted proxy: got %q", got)
@@ -4740,7 +4740,7 @@ func TestClientIP(t *testing.T) {
 	if PeerTrusted(r, trusted) {
 		t.Fatal("peer should not be trusted")
 	}
-	r.RemoteAddr = "172.19.0.149:1"
+	r.RemoteAddr = "172.20.0.10:1"
 	if !PeerTrusted(r, trusted) {
 		t.Fatal("peer should be trusted")
 	}
@@ -5515,7 +5515,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 type MountFact struct {
@@ -5665,7 +5665,7 @@ import (
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/client"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 type ContainerInfo struct {
@@ -5884,8 +5884,8 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 type FakeCompose struct {
@@ -6175,11 +6175,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 const exampleStack = `{"services": {
@@ -6283,8 +6283,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func TestWhoami(t *testing.T) {
@@ -6395,8 +6395,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 type Compose interface {
@@ -6461,8 +6461,8 @@ func (s *Service) wsMutex(ws string) *sync.Mutex {
 package service
 
 import (
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 type NoInput struct{}
@@ -6579,7 +6579,7 @@ package service
 import (
 	"encoding/json"
 
-	"github.com/sebmahr/deploy-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
 )
 
 const (
@@ -6638,7 +6638,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 // track writes one audit row per agent call. Non-*Error errors are replaced
@@ -6793,12 +6793,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/render"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
-	"github.com/sebmahr/deploy-gateway/internal/verify"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/render"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/verify"
 )
 
 type planned struct {
@@ -7035,9 +7035,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 type PortSettings struct {
@@ -7170,9 +7170,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func TestDeployHappyPath(t *testing.T) {
@@ -7361,10 +7361,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func (s *Service) Validate(ctx context.Context, p Principal, in DeployInput) (res ValidateResult, err error) {
@@ -7606,7 +7606,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service"
 )
 
 func deployExample(t *testing.T, h *harness, p service.Principal) {
@@ -7735,11 +7735,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 func TestWorkspacePortRules(t *testing.T) {
@@ -7883,9 +7883,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 ```
 
@@ -8009,8 +8009,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 type composeOp func(ctx context.Context, file, project, service string) (string, error)
@@ -8125,11 +8125,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 ```
 
@@ -8333,8 +8333,8 @@ import (
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func setup(t *testing.T) (*Authenticator, string) {
@@ -8425,11 +8425,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func setup(t *testing.T) (*httptest.Server, string) {
@@ -8542,9 +8542,9 @@ import (
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 var ErrUnauthorized = errors.New("unauthorized")
@@ -8637,9 +8637,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
 )
 
 type Handler struct {
@@ -8780,11 +8780,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 type bearer struct{ token string }
@@ -8908,8 +8908,8 @@ import (
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
 )
 
 const instructions = `deploy-gateway deploys containerized apps into your own workspace on a shared server.
@@ -9074,10 +9074,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 var builtUI = fstest.MapFS{
@@ -9215,10 +9215,10 @@ func TestProxyMode(t *testing.T) {
 	if w := e.do("GET", "/api/admin/me", nil, trusted); w.Code != http.StatusUnauthorized || decode[apiError](t, w).Code != "unauthorized" {
 		t.Fatalf("missing header: %d %s", w.Code, w.Body.String())
 	}
-	user := func(r *http.Request) { trusted(r); r.Header.Set("Remote-User", "sebastian") }
+	user := func(r *http.Request) { trusted(r); r.Header.Set("Remote-User", "alice-admin") }
 	w := e.do("GET", "/api/admin/me", nil, user)
 	me := decode[map[string]any](t, w)
-	if w.Code != 200 || me["actor"] != "proxy:sebastian" || me["proxy_mode"] != true {
+	if w.Code != 200 || me["actor"] != "proxy:alice-admin" || me["proxy_mode"] != true {
 		t.Fatalf("me: %d %v", w.Code, me)
 	}
 	if w := e.do("POST", "/api/admin/login", map[string]string{"password": "x"}, user); w.Code != http.StatusNotFound {
@@ -9297,11 +9297,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/api"
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/api"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 const cookieName = "dg_admin"
@@ -9612,11 +9612,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 func workspaceBody(name string) map[string]any {
@@ -9761,8 +9761,8 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 // JSON shapes of the admin API; mirrored in web/src/types.ts.
@@ -9874,8 +9874,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func (s *Server) workspaceRoutes(mux *http.ServeMux) {
@@ -10186,8 +10186,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func TestTemplatesCRUDAndPreview(t *testing.T) {
@@ -10333,8 +10333,8 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 type templateDTO struct {
@@ -10514,8 +10514,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func (s *Server) miscRoutes(mux *http.ServeMux) {
@@ -13026,11 +13026,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func TestHashPassword(t *testing.T) {
@@ -13140,17 +13140,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/admin"
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/api"
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/config"
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/mcpserver"
-	"github.com/sebmahr/deploy-gateway/internal/runner"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/webui"
+	"github.com/sebbi08/deployment-gateway/internal/admin"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/api"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/config"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/mcpserver"
+	"github.com/sebbi08/deployment-gateway/internal/runner"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/webui"
 )
 
 var version = "dev"
@@ -13398,11 +13398,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/runner"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/runner"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 func detail(err error) string {
@@ -13631,11 +13631,11 @@ ADMIN_PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=2$REPLACE$REPLACE'
 
 # Alternative: leave ADMIN_PASSWORD_HASH empty and rely on a forward-auth proxy only.
 # Both of the following are then required, otherwise the gateway refuses to start.
-#ADMIN_TRUSTED_PROXIES=172.19.0.149
+#ADMIN_TRUSTED_PROXIES=172.20.0.10
 #ADMIN_USER_HEADER=Remote-User
 
 # Reverse proxy address(es) whose X-Forwarded-For is trusted for audit/rate limiting.
-TRUSTED_PROXIES=172.19.0.149
+TRUSTED_PROXIES=172.20.0.10
 
 #DEPLOY_TIMEOUT=300s
 #DEPLOY_CONCURRENCY=1

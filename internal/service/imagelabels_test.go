@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 func TestDeployPullsBeforeUp(t *testing.T) {

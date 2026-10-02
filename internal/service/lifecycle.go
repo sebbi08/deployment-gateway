@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 type composeOp func(ctx context.Context, file, project, service string) (string, error)

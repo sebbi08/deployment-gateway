@@ -7,12 +7,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/render"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
-	"github.com/sebmahr/deploy-gateway/internal/verify"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/render"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/verify"
 )
 
 type planned struct {

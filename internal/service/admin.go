@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/names"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 type PortSettings struct {

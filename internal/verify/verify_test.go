@@ -154,7 +154,7 @@ func TestVerifyRejectsMutations(t *testing.T) {
 			w["ports"].([]any)[0].(map[string]any)["published"] = "22"
 		}, "published"},
 		{"wrong host_ip", func(_, w map[string]any) {
-			w["ports"].([]any)[0].(map[string]any)["host_ip"] = "192.168.0.53"
+			w["ports"].([]any)[0].(map[string]any)["host_ip"] = "192.168.1.10"
 		}, "host_ip"},
 		{"foreign network", func(_, w map[string]any) { w["networks"] = []any{"dg-alice-shop", "all"} }, `network "all"`},
 		{"network aliases", func(_, w map[string]any) {

@@ -12,9 +12,9 @@ import (
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 var ErrUnauthorized = errors.New("unauthorized")

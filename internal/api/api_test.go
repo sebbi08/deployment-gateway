@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/service/servicetest"
-	"github.com/sebmahr/deploy-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func setup(t *testing.T) (*httptest.Server, string) {

@@ -9,8 +9,8 @@ import (
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/sebmahr/deploy-gateway/internal/agentauth"
-	"github.com/sebmahr/deploy-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/agentauth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
 )
 
 const instructions = `deploy-gateway deploys containerized apps into your own workspace on a shared server.

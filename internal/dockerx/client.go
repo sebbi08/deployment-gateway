@@ -14,7 +14,7 @@ import (
 	"github.com/moby/moby/api/pkg/stdcopy"
 	"github.com/moby/moby/client"
 
-	"github.com/sebmahr/deploy-gateway/internal/names"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 type ContainerInfo struct {

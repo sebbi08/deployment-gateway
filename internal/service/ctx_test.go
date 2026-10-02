@@ -5,7 +5,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service"
 )
 
 // A client disconnect must not abort compose half-way: pull and up run

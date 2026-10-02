@@ -3,10 +3,10 @@ package render_test
 import (
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/render"
-	"github.com/sebmahr/deploy-gateway/internal/stack"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
-	"github.com/sebmahr/deploy-gateway/internal/verify"
+	"github.com/sebbi08/deployment-gateway/internal/render"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/verify"
 )
 
 var seeds = []string{

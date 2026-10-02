@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sebmahr/deploy-gateway/internal/auth"
-	"github.com/sebmahr/deploy-gateway/internal/dockerx"
-	"github.com/sebmahr/deploy-gateway/internal/service"
-	"github.com/sebmahr/deploy-gateway/internal/store"
-	"github.com/sebmahr/deploy-gateway/internal/tmpl"
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 func TestWorkspacePortRules(t *testing.T) {
@@ -213,11 +213,11 @@ func TestWorkspaceBindIPIsCanonical(t *testing.T) {
 	if got, _ := h.st.GetWorkspace(h.ctx, w.ID); got.PortBindIP != "127.0.0.1" {
 		t.Fatalf("created bind IP = %q", got.PortBindIP)
 	}
-	w.PortBindIP = "::ffff:192.168.0.53"
+	w.PortBindIP = "::ffff:192.168.1.10"
 	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := h.st.GetWorkspace(h.ctx, w.ID); got.PortBindIP != "192.168.0.53" {
+	if got, _ := h.st.GetWorkspace(h.ctx, w.ID); got.PortBindIP != "192.168.1.10" {
 		t.Fatalf("updated bind IP = %q", got.PortBindIP)
 	}
 }

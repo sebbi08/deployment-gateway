@@ -3,7 +3,7 @@ package service
 import (
 	"encoding/json"
 
-	"github.com/sebmahr/deploy-gateway/internal/stack"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
 )
 
 const (
