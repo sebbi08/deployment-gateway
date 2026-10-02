@@ -39,6 +39,9 @@ type Output struct {
 	YAML  []byte
 	Hosts map[string]string // short service name -> public host
 	Ports []PublishedPort
+	// Labels holds, per short service name, the labels exactly as Docker
+	// will set them on the container (compose $$-escaping removed).
+	Labels map[string]map[string]string
 }
 
 func Render(in Input) (Output, error) {
@@ -49,7 +52,7 @@ func Render(in Input) (Output, error) {
 		Services: map[string]composeService{},
 		Networks: map[string]composeNetwork{privateNet: {Name: privateNet}},
 	}
-	out := Output{Hosts: map[string]string{}, Ports: []PublishedPort{}}
+	out := Output{Hosts: map[string]string{}, Ports: []PublishedPort{}, Labels: map[string]map[string]string{}}
 
 	for _, svcName := range stack.ServiceNames(in.Stack) {
 		svc := in.Stack.Services[svcName]
@@ -74,8 +77,8 @@ func Render(in Input) (Output, error) {
 			PidsLimit:     res.Pids,
 			Logging:       composeLogging{Driver: "json-file", Options: map[string]string{"max-size": "10m", "max-file": "3"}},
 			Networks:      []string{privateNet},
-			Labels:        map[string]string{},
 		}
+		labels := map[string]string{}
 		if svc.Volume != nil {
 			cs.Volumes = []composeVolume{{
 				Type:   "bind",
@@ -116,7 +119,7 @@ func Render(in Input) (Output, error) {
 			}
 			vars := tmpl.Vars{Workspace: ws, App: app, Service: svcName, Port: e.Port}
 			for k, v := range t.RenderLabels(vars) {
-				cs.Labels[k] = escape(v)
+				labels[k] = v
 			}
 			for _, n := range t.Networks {
 				if !slices.Contains(cs.Networks, n) {
@@ -129,10 +132,12 @@ func Render(in Input) (Output, error) {
 			}
 		}
 		// Owner labels last so nothing can overwrite them.
-		cs.Labels[names.LabelWorkspace] = ws
-		cs.Labels[names.LabelApp] = app
-		cs.Labels[names.LabelService] = svcName
-		cs.Labels[names.LabelManaged] = "true"
+		labels[names.LabelWorkspace] = ws
+		labels[names.LabelApp] = app
+		labels[names.LabelService] = svcName
+		labels[names.LabelManaged] = "true"
+		cs.Labels = escapeMap(labels)
+		out.Labels[svcName] = labels
 		file.Services[id] = cs
 	}
 

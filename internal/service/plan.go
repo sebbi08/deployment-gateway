@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/sebmahr/deploy-gateway/internal/names"
@@ -23,6 +24,28 @@ type planned struct {
 	memBytes int64
 	cpus     float64
 	claims   []store.PortClaim
+	// imagePrefixes / runtimePrefixes are the reserved label namespaces
+	// checked on image LABELs before up and on container labels after up.
+	imagePrefixes   []string
+	runtimePrefixes []string
+}
+
+// Label namespaces that only the gateway may set. Compose itself adds
+// com.docker.compose.* to containers, so that prefix is checked on images
+// only. Every stored template's namespaces are reserved as well.
+var (
+	fixedImagePrefixes   = []string{"traefik.", "deploy-gateway.", "com.docker.compose."}
+	fixedRuntimePrefixes = []string{"traefik.", "deploy-gateway."}
+)
+
+// reservedPrefixes returns the fixed prefixes plus the namespaces of every
+// stored template (granted or not).
+func reservedPrefixes(fixed []string, all []store.StoredTemplate) []string {
+	ts := make([]tmpl.Template, 0, len(all))
+	for _, t := range all {
+		ts = append(ts, t.Template)
+	}
+	return slices.Compact(slices.Sorted(slices.Values(slices.Concat(fixed, tmpl.LabelPrefixes(ts)))))
 }
 
 // plan runs validation, quota checks, rendering and verification. It has no
@@ -95,8 +118,14 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	if err := verify.Verify(out.YAML, pol); err != nil {
 		return nil, &Error{Code: CodeSecurity, Message: "rendered configuration failed verification", detail: err.Error(), critical: true}
 	}
+	all, err := s.Store.ListTemplates(ctx)
+	if err != nil {
+		return nil, err
+	}
 	return &planned{app: app, stack: st, out: out, policy: pol, defaults: defaults, memBytes: mem, cpus: cpus,
-		claims: claimsFrom(app, out.Ports)}, nil
+		claims:          claimsFrom(app, out.Ports),
+		imagePrefixes:   reservedPrefixes(fixedImagePrefixes, all),
+		runtimePrefixes: reservedPrefixes(fixedRuntimePrefixes, all)}, nil
 }
 
 func claimsFrom(app string, ports []render.PublishedPort) []store.PortClaim {

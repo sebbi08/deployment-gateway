@@ -22,7 +22,7 @@ func TestDeployHappyPath(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(h.root, "alice", "shop", "docker-compose.yml")
-	if calls := h.compose.Calls(); len(calls) != 1 || calls[0] != "up dg-alice-shop "+file {
+	if calls := h.compose.Calls(); len(calls) != 2 || calls[1] != "up dg-alice-shop "+file {
 		t.Fatalf("compose calls = %v", calls)
 	}
 	data, err := os.ReadFile(file)

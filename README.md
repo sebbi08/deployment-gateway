@@ -10,6 +10,7 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
 - Every container runs with `cap_drop: [ALL]`, `no-new-privileges`, read-only root fs (opt-out per service), `/tmp` tmpfs, memory/CPU/pids limits, no swap.
 - Volumes are bind mounts under `<WORKSPACES_ROOT>/<workspace>/<app>/data/<service>` only.
 - Three checks: input allowlist → post-render verifier → runtime inspect (containers are removed on any violation and a critical audit event is written).
+- Images are pulled before any container is created and their `LABEL`s are inspected: Docker merges image labels into container labels, so an image carrying a key under `traefik.`, `deploy-gateway.`, `com.docker.compose.` or the first segment of any stored template's label keys (e.g. `wud.` for a template label `wud.watch`) is rejected with `validation_failed` (`services.<svc>.image`). The runtime inspect additionally rejects any container label in those namespaces (except `com.docker.compose.*`, which compose sets itself) that the gateway did not render.
 - Tokens are per workspace, stored as SHA-256, revocable; every call is audited with env values redacted.
 
 ## Setup on the host

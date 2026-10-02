@@ -2,6 +2,7 @@ package dockerx
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -54,6 +55,13 @@ type RuntimePolicy struct {
 	App       string
 	DataDir   string
 	Ports     []PortFact
+	// Labels are the labels the gateway rendered for this service.
+	Labels map[string]string
+	// ReservedPrefixes are label namespaces (e.g. "traefik.") in which the
+	// container may carry only exactly the rendered labels. Image LABELs
+	// are merged into container labels by Docker, so this catches labels
+	// smuggled in through the image.
+	ReservedPrefixes []string
 }
 
 // Anonymous volumes (from an image's VOLUME instruction) have random 64-hex
@@ -115,10 +123,31 @@ func CheckRuntime(f Facts, p RuntimePolicy) []string {
 	if f.Labels[names.LabelWorkspace] != p.Workspace || f.Labels[names.LabelApp] != p.App {
 		add("owner labels do not match %s/%s", p.Workspace, p.App)
 	}
+	for _, k := range slices.Sorted(maps.Keys(f.Labels)) {
+		if !HasReservedPrefix(k, p.ReservedPrefixes) {
+			continue
+		}
+		if want, ok := p.Labels[k]; !ok || want != f.Labels[k] {
+			add("label %q=%q was not rendered by the gateway", k, f.Labels[k])
+		}
+	}
 	if !samePorts(f.PortBindings, p.Ports) {
 		add("port bindings %v do not match expected %v", f.PortBindings, p.Ports)
 	}
 	return v
+}
+
+// HasReservedPrefix reports whether key (case-insensitively) lies in one of
+// the reserved label namespaces. A prefix "x." also matches the bare key "x".
+func HasReservedPrefix(key string, prefixes []string) bool {
+	k := strings.ToLower(key)
+	for _, p := range prefixes {
+		p = strings.ToLower(p)
+		if strings.HasPrefix(k, p) || (strings.HasSuffix(p, ".") && k == strings.TrimSuffix(p, ".")) {
+			return true
+		}
+	}
+	return false
 }
 
 func samePorts(a, b []PortFact) bool {

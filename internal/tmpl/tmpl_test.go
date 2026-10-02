@@ -140,3 +140,20 @@ func TestHostsAreUniqueWithinTemplate(t *testing.T) {
 		}
 	}
 }
+
+func TestLabelPrefixes(t *testing.T) {
+	ts := []Template{
+		publicWeb(),
+		{Name: "wud", Labels: map[string]string{"wud.watch": "true", "WUD.tag.include": `^\d+$`}},
+		{Name: "flat", Labels: map[string]string{"homepage": "x", "foo{{app}}.bar": "y"}},
+		{Name: "none"},
+	}
+	got := LabelPrefixes(ts)
+	want := []string{"foo", "homepage.", "traefik.", "wud."}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("LabelPrefixes = %v, want %v", got, want)
+	}
+	if got := LabelPrefixes(nil); len(got) != 0 {
+		t.Fatalf("no templates: %v", got)
+	}
+}

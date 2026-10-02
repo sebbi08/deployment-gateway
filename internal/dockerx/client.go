@@ -111,6 +111,19 @@ func (c *Client) Inspect(ctx context.Context, id string) (Facts, error) {
 	return f, nil
 }
 
+// ImageLabels returns the LABELs of a locally present image. Docker merges
+// them into the labels of every container created from the image.
+func (c *Client) ImageLabels(ctx context.Context, ref string) (map[string]string, error) {
+	res, err := c.api.ImageInspect(ctx, ref)
+	if err != nil {
+		return nil, err
+	}
+	if res.Config == nil {
+		return map[string]string{}, nil
+	}
+	return res.Config.Labels, nil
+}
+
 var errCapped = errors.New("log output capped")
 
 type capWriter struct {

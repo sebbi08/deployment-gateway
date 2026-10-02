@@ -7,8 +7,9 @@ import (
 
 func goodFacts() Facts {
 	return Facts{
-		Name:        "alice-shop-web",
-		Labels:      map[string]string{"deploy-gateway.workspace": "alice", "deploy-gateway.app": "shop"},
+		Name: "alice-shop-web",
+		Labels: map[string]string{"deploy-gateway.workspace": "alice", "deploy-gateway.app": "shop",
+			"traefik.enable": "true", "com.docker.compose.project": "dg-alice-shop", "org.opencontainers.image.title": "shop"},
 		CapDrop:     []string{"ALL"},
 		SecurityOpt: []string{"no-new-privileges:true"},
 		NetworkMode: "dg-alice-shop",
@@ -25,7 +26,9 @@ func goodFacts() Facts {
 
 func policy() RuntimePolicy {
 	return RuntimePolicy{Workspace: "alice", App: "shop", DataDir: "/srv/ws/alice/shop/data",
-		Ports: []PortFact{{ContainerPort: 8080, Protocol: "tcp", HostIP: "0.0.0.0", HostPort: 20001}}}
+		Ports:            []PortFact{{ContainerPort: 8080, Protocol: "tcp", HostIP: "0.0.0.0", HostPort: 20001}},
+		Labels:           map[string]string{"deploy-gateway.workspace": "alice", "deploy-gateway.app": "shop", "traefik.enable": "true"},
+		ReservedPrefixes: []string{"traefik.", "deploy-gateway.", "wud."}}
 }
 
 func TestCheckRuntimeAcceptsGood(t *testing.T) {
@@ -62,6 +65,11 @@ func TestCheckRuntimeRejects(t *testing.T) {
 			f.PortBindings = append(f.PortBindings, PortFact{ContainerPort: 22, Protocol: "tcp", HostIP: "0.0.0.0", HostPort: 22})
 		}, "port bindings"},
 		{"wrong host ip", func(f *Facts) { f.PortBindings[0].HostIP = "" }, "port bindings"},
+		{"unexpected traefik label", func(f *Facts) { f.Labels["traefik.http.routers.pwn.rule"] = "Host(`admin.example.com`)" }, "traefik.http.routers.pwn.rule"},
+		{"mixed-case traefik label", func(f *Facts) { f.Labels["Traefik.HTTP.Routers.pwn.rule"] = "Host(`x`)" }, "Traefik.HTTP.Routers.pwn.rule"},
+		{"changed traefik label", func(f *Facts) { f.Labels["traefik.enable"] = "false" }, "traefik.enable"},
+		{"template namespace label", func(f *Facts) { f.Labels["wud.watch"] = "true" }, "wud.watch"},
+		{"extra owner label", func(f *Facts) { f.Labels["deploy-gateway.extra"] = "x" }, "deploy-gateway.extra"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -72,5 +80,23 @@ func TestCheckRuntimeRejects(t *testing.T) {
 				t.Fatalf("want violation containing %q, got %v", c.want, v)
 			}
 		})
+	}
+}
+
+func TestHasReservedPrefix(t *testing.T) {
+	prefixes := []string{"traefik.", "wud.", "foo"}
+	for key, want := range map[string]bool{
+		"traefik.http.routers.x.rule": true,
+		"Traefik.HTTP.routers.x.rule": true,
+		"traefik":                     true,
+		"traefikx.enable":             false,
+		"wud.watch":                   true,
+		"foobar":                      true,
+		"org.opencontainers.image":    false,
+		"maintainer":                  false,
+	} {
+		if got := HasReservedPrefix(key, prefixes); got != want {
+			t.Errorf("HasReservedPrefix(%q) = %v, want %v", key, got, want)
+		}
 	}
 }

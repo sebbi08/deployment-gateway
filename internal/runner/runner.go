@@ -58,8 +58,15 @@ func (r *Runner) TryLock(key string) (func(), bool) {
 	}, true
 }
 
+// Pull fetches every service image. It runs before Up so the gateway can
+// inspect image labels before any container exists.
+func (r *Runner) Pull(ctx context.Context, file, project string) (string, error) {
+	return r.run(ctx, file, project, "pull")
+}
+
+// Up never pulls: the images were pulled and inspected by the caller.
 func (r *Runner) Up(ctx context.Context, file, project string) (string, error) {
-	return r.run(ctx, file, project, "up", "-d", "--pull", "always", "--remove-orphans",
+	return r.run(ctx, file, project, "up", "-d", "--pull", "never", "--remove-orphans",
 		"--wait", "--wait-timeout", strconv.Itoa(int(r.opts.Timeout.Seconds())))
 }
 

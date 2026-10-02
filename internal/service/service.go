@@ -16,6 +16,7 @@ import (
 )
 
 type Compose interface {
+	Pull(ctx context.Context, file, project string) (string, error)
 	Up(ctx context.Context, file, project string) (string, error)
 	Down(ctx context.Context, file, project string) (string, error)
 	Restart(ctx context.Context, file, project, service string) (string, error)
@@ -28,6 +29,7 @@ type Docker interface {
 	ManagedContainers(ctx context.Context) ([]dockerx.ContainerInfo, error)
 	Inspect(ctx context.Context, id string) (dockerx.Facts, error)
 	Logs(ctx context.Context, id string, tail int, since string, maxBytes int) (string, error)
+	ImageLabels(ctx context.Context, ref string) (map[string]string, error)
 	NetworkExists(ctx context.Context, name string) (bool, error)
 	RemoveContainer(ctx context.Context, id string) error
 }

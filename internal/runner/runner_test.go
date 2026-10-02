@@ -43,7 +43,7 @@ func TestUpArgvAndScrubbedEnv(t *testing.T) {
 	if !strings.Contains(out, "started") {
 		t.Fatalf("output = %q", out)
 	}
-	wantArgs := "-f\n/ws/alice/shop/docker-compose.yml\n-p\ndg-alice-shop\nup\n-d\n--pull\nalways\n--remove-orphans\n--wait\n--wait-timeout\n120\n"
+	wantArgs := "-f\n/ws/alice/shop/docker-compose.yml\n-p\ndg-alice-shop\nup\n-d\n--pull\nnever\n--remove-orphans\n--wait\n--wait-timeout\n120\n"
 	if got := read(t, dir+"/args"); got != wantArgs {
 		t.Fatalf("args =\n%s\nwant\n%s", got, wantArgs)
 	}
@@ -65,6 +65,7 @@ func TestDownRestartStopArgv(t *testing.T) {
 		want string
 	}{
 		{func() (string, error) { return r.Down(ctx, "/f.yml", "dg-a-b") }, "down\n-v\n--remove-orphans\n"},
+		{func() (string, error) { return r.Pull(ctx, "/f.yml", "dg-a-b") }, "pull\n"},
 		{func() (string, error) { return r.Restart(ctx, "/f.yml", "dg-a-b", "") }, "restart\n"},
 		{func() (string, error) { return r.Restart(ctx, "/f.yml", "dg-a-b", "a-b-web") }, "restart\na-b-web\n"},
 		{func() (string, error) { return r.Stop(ctx, "/f.yml", "dg-a-b", "a-b-web") }, "stop\na-b-web\n"},

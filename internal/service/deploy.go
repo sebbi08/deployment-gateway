@@ -47,8 +47,18 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		return AppStatus{}, err
 	}
 	file, project := s.composeFile(ws.Name, app), names.Project(ws.Name, app)
-	// Teardown and status bookkeeping must survive client disconnects.
+	// Pull, up, teardown and status bookkeeping must survive client
+	// disconnects; the runner still enforces its own timeout.
 	bg := context.WithoutCancel(ctx)
+	if out, err := s.Compose.Pull(bg, file, project); err != nil {
+		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
+		msg := "pulling images failed: " + s.sanitize(ws.Name, err.Error()) + "\n" + s.sanitize(ws.Name, out) + s.prevHint(ws.Name, app)
+		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: out}
+	}
+	if err := s.checkImageLabels(bg, pl); err != nil {
+		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
+		return AppStatus{}, err
+	}
 	out, upErr := s.Compose.Up(ctx, file, project)
 	// Layer 3 runs even when up failed: --wait can fail while containers exist.
 	if violations := s.runtimeCheck(bg, ws.Name, app, pl); len(violations) > 0 {
@@ -64,16 +74,50 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	}
 	if upErr != nil {
 		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
-		msg := "deployment failed: " + upErr.Error() + "\n" + s.sanitize(ws.Name, out) + s.failureLogs(bg, ws.Name, app)
-		if _, statErr := os.Stat(s.prevFile(ws.Name, app)); statErr == nil {
-			msg += "\nThe previous successful configuration is kept as docker-compose.prev.yml; redeploy the previous stack to roll back."
-		}
+		msg := "deployment failed: " + upErr.Error() + "\n" + s.sanitize(ws.Name, out) + s.failureLogs(bg, ws.Name, app) + s.prevHint(ws.Name, app)
 		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: out}
 	}
 	if err := s.Store.RecordDeploy(ctx, appRec.ID, "ok"); err != nil {
 		return AppStatus{}, err
 	}
 	return s.status(ctx, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
+}
+
+func (s *Service) prevHint(ws, app string) string {
+	if _, err := os.Stat(s.prevFile(ws, app)); err == nil {
+		return "\nThe previous successful configuration is kept as docker-compose.prev.yml; redeploy the previous stack to roll back."
+	}
+	return ""
+}
+
+// checkImageLabels rejects images whose LABELs fall into a reserved
+// namespace. Docker merges image labels into the container's labels, and
+// Traefik (or another label consumer) would act on them, so an image could
+// otherwise smuggle in routers for foreign hosts. Runs after pull, before up.
+func (s *Service) checkImageLabels(ctx context.Context, pl *planned) error {
+	var fields stack.Errors
+	for _, svc := range stack.ServiceNames(pl.stack) {
+		ref := pl.stack.Services[svc].Image
+		labels, err := s.Docker.ImageLabels(ctx, ref)
+		if err != nil {
+			return &Error{Code: CodeDeployFailed, Message: fmt.Sprintf("cannot inspect the image of service %q", svc), detail: err.Error()}
+		}
+		var bad []string
+		for _, k := range slices.Sorted(maps.Keys(labels)) {
+			if dockerx.HasReservedPrefix(k, pl.imagePrefixes) {
+				bad = append(bad, strconv.Quote(k))
+			}
+		}
+		if len(bad) > 0 {
+			fields = append(fields, stack.FieldError{Field: "services." + svc + ".image", Message: fmt.Sprintf(
+				"image carries label(s) %s in a reserved namespace (%s); rebuild the image without them",
+				strings.Join(bad, ", "), strings.Join(pl.imagePrefixes, ", "))})
+		}
+	}
+	if len(fields) > 0 {
+		return &Error{Code: CodeValidation, Message: "image labels rejected", Fields: fields}
+	}
+	return nil
 }
 
 // prepare runs under the workspace mutex so concurrent deploys of different
@@ -173,7 +217,8 @@ func (s *Service) runtimeCheck(ctx context.Context, ws, app string, pl *planned)
 		for _, cl := range portsFor(pl.claims, svc) {
 			ports = append(ports, dockerx.PortFact{ContainerPort: cl.ContainerPort, Protocol: cl.Protocol, HostIP: pl.policy.BindIP, HostPort: cl.HostPort})
 		}
-		v = append(v, dockerx.CheckRuntime(facts, dockerx.RuntimePolicy{Workspace: ws, App: app, DataDir: pl.policy.DataDir, Ports: ports})...)
+		v = append(v, dockerx.CheckRuntime(facts, dockerx.RuntimePolicy{Workspace: ws, App: app, DataDir: pl.policy.DataDir, Ports: ports,
+			Labels: pl.out.Labels[svc], ReservedPrefixes: pl.runtimePrefixes})...)
 	}
 	return v
 }

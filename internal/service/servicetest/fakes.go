@@ -7,6 +7,7 @@ package servicetest
 import (
 	"context"
 	"errors"
+	"maps"
 	"os"
 	"slices"
 	"strconv"
@@ -20,16 +21,21 @@ import (
 )
 
 type FakeCompose struct {
-	mu        sync.Mutex
-	calls     []string
-	locks     map[string]bool
-	UpErr     error
-	UpOut     string
-	OnUp      func(file, project string) error
-	OnDown    func(project string)
-	OnStop    func(project, service string)
-	OnRestart func(project, service string)
-	AfterUp   func()
+	mu      sync.Mutex
+	calls   []string
+	locks   map[string]bool
+	PullErr error
+	PullOut string
+	UpErr   error
+	UpOut   string
+	// ObserveCtx, if set, is called with the operation name ("pull", "up",
+	// "down", "restart", "stop") and the context the operation received.
+	ObserveCtx func(op string, ctx context.Context)
+	OnUp       func(file, project string) error
+	OnDown     func(project string)
+	OnStop     func(project, service string)
+	OnRestart  func(project, service string)
+	AfterUp    func()
 }
 
 func (f *FakeCompose) record(s string) {
@@ -44,8 +50,21 @@ func (f *FakeCompose) Calls() []string {
 	return slices.Clone(f.calls)
 }
 
-func (f *FakeCompose) Up(_ context.Context, file, project string) (string, error) {
+func (f *FakeCompose) observe(op string, ctx context.Context) {
+	if f.ObserveCtx != nil {
+		f.ObserveCtx(op, ctx)
+	}
+}
+
+func (f *FakeCompose) Pull(ctx context.Context, _, project string) (string, error) {
+	f.record("pull " + project)
+	f.observe("pull", ctx)
+	return f.PullOut, f.PullErr
+}
+
+func (f *FakeCompose) Up(ctx context.Context, file, project string) (string, error) {
 	f.record("up " + project + " " + file)
+	f.observe("up", ctx)
 	if f.UpErr != nil {
 		return f.UpOut, f.UpErr
 	}
@@ -60,24 +79,27 @@ func (f *FakeCompose) Up(_ context.Context, file, project string) (string, error
 	return f.UpOut, nil
 }
 
-func (f *FakeCompose) Down(_ context.Context, _, project string) (string, error) {
+func (f *FakeCompose) Down(ctx context.Context, _, project string) (string, error) {
 	f.record("down " + project)
+	f.observe("down", ctx)
 	if f.OnDown != nil {
 		f.OnDown(project)
 	}
 	return "", nil
 }
 
-func (f *FakeCompose) Restart(_ context.Context, _, project, service string) (string, error) {
+func (f *FakeCompose) Restart(ctx context.Context, _, project, service string) (string, error) {
 	f.record("restart " + project + " " + service)
+	f.observe("restart", ctx)
 	if f.OnRestart != nil {
 		f.OnRestart(project, service)
 	}
 	return "", nil
 }
 
-func (f *FakeCompose) Stop(_ context.Context, _, project, service string) (string, error) {
+func (f *FakeCompose) Stop(ctx context.Context, _, project, service string) (string, error) {
 	f.record("stop " + project + " " + service)
+	f.observe("stop", ctx)
 	if f.OnStop != nil {
 		f.OnStop(project, service)
 	}
@@ -109,12 +131,16 @@ type FakeDocker struct {
 	Containers map[string]dockerx.ContainerInfo
 	Facts      map[string]dockerx.Facts
 	Networks   map[string]bool
-	LogsOut    string
-	touched    []string
+	// Images maps an image reference to its LABELs (default: none). Wire
+	// merges them into created containers like Docker does.
+	Images  map[string]map[string]string
+	LogsOut string
+	touched []string
 }
 
 func NewFakeDocker() *FakeDocker {
-	return &FakeDocker{Containers: map[string]dockerx.ContainerInfo{}, Facts: map[string]dockerx.Facts{}, Networks: map[string]bool{}}
+	return &FakeDocker{Containers: map[string]dockerx.ContainerInfo{}, Facts: map[string]dockerx.Facts{}, Networks: map[string]bool{},
+		Images: map[string]map[string]string{}}
 }
 
 // Touched lists container IDs passed to Inspect, Logs or RemoveContainer.
@@ -178,6 +204,12 @@ func (d *FakeDocker) Logs(_ context.Context, id string, _ int, _ string, _ int) 
 	return d.LogsOut, nil
 }
 
+func (d *FakeDocker) ImageLabels(_ context.Context, ref string) (map[string]string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return maps.Clone(d.Images[ref]), nil
+}
+
 func (d *FakeDocker) NetworkExists(_ context.Context, name string) (bool, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -195,6 +227,7 @@ func (d *FakeDocker) RemoveContainer(_ context.Context, id string) error {
 
 type renderedFile struct {
 	Services map[string]struct {
+		Image       string            `yaml:"image"`
 		Labels      map[string]string `yaml:"labels"`
 		MemLimit    int64             `yaml:"mem_limit"`
 		PidsLimit   int64             `yaml:"pids_limit"`
@@ -248,8 +281,19 @@ func Wire(c *FakeCompose, d *FakeDocker) {
 			if s.Healthcheck != nil {
 				health = "healthy"
 			}
+			// Docker merges image labels under the configured ones; compose
+			// adds its own com.docker.compose.* labels.
+			labels := maps.Clone(d.Images[s.Image])
+			if labels == nil {
+				labels = map[string]string{}
+			}
+			for k, v := range s.Labels { // compose removes $$ escaping
+				labels[k] = strings.ReplaceAll(v, "$$", "$")
+			}
+			labels["com.docker.compose.project"] = project
+			labels["com.docker.compose.service"] = key
 			f := dockerx.Facts{
-				Name: key, Labels: s.Labels, CapDrop: []string{"ALL"}, SecurityOpt: []string{"no-new-privileges:true"},
+				Name: key, Labels: labels, CapDrop: []string{"ALL"}, SecurityOpt: []string{"no-new-privileges:true"},
 				NetworkMode: s.Networks[0], IpcMode: "private", Memory: s.MemLimit, PidsLimit: s.PidsLimit,
 				State: "running", Health: health,
 			}
@@ -260,7 +304,7 @@ func Wire(c *FakeCompose, d *FakeDocker) {
 				hp, _ := strconv.Atoi(p.Published)
 				f.PortBindings = append(f.PortBindings, dockerx.PortFact{ContainerPort: p.Target, Protocol: p.Protocol, HostIP: p.HostIP, HostPort: hp})
 			}
-			d.Containers[key] = dockerx.ContainerInfo{ID: key, Name: key, Labels: s.Labels, State: "running", Status: "Up", Health: health}
+			d.Containers[key] = dockerx.ContainerInfo{ID: key, Name: key, Labels: labels, State: "running", Status: "Up", Health: health}
 			d.Facts[key] = f
 		}
 		return nil

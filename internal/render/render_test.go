@@ -230,3 +230,32 @@ func TestRenderGolden(t *testing.T) {
 		t.Fatalf("output differs from %s; rerun with -update and review the diff\n%s", golden, a)
 	}
 }
+
+func TestRenderOutputLabelsAreUnescaped(t *testing.T) {
+	in := testInput(t)
+	tp := in.Templates["public-web"]
+	tp.Labels["x.cost"] = "$5"
+	in.Templates["public-web"] = tp
+	out := mustRender(t, in)
+	web := out.Labels["web"]
+	want := map[string]string{
+		"traefik.enable": "true",
+		"traefik.http.routers.alice-shop-web.rule":                      "Host(`shop.alice.apps.example.com`)",
+		"traefik.http.services.alice-shop-web.loadbalancer.server.port": "8080",
+		"x.regex":                  "^/api$",
+		"x.cost":                   "$5",
+		"deploy-gateway.workspace": "alice",
+		"deploy-gateway.app":       "shop",
+		"deploy-gateway.service":   "web",
+		"deploy-gateway.managed":   "true",
+	}
+	if !reflect.DeepEqual(web, want) {
+		t.Fatalf("web labels = %v", web)
+	}
+	if db := out.Labels["db"]; len(db) != 4 || db["deploy-gateway.service"] != "db" {
+		t.Fatalf("db labels = %v", db)
+	}
+	if got := service(t, parse(t, out.YAML), "alice-shop-web")["labels"].(map[string]any)["x.cost"]; got != "$$5" {
+		t.Fatalf("yaml label must stay escaped, got %v", got)
+	}
+}

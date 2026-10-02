@@ -200,3 +200,29 @@ func (t Template) RenderLabels(v Vars) map[string]string {
 func (t Template) Shareable() bool {
 	return t.HostPattern == "" || strings.Contains(t.HostPattern, "{{service}}")
 }
+
+// LabelPrefixes returns the lower-cased label namespaces used by templates:
+// the first dot-segment of every label key plus ".". A key whose first
+// segment contains a placeholder reserves its literal part before the
+// placeholder; a key without a dot reserves itself as a namespace. Images
+// and containers must not carry labels in these namespaces unless the
+// gateway rendered them.
+func LabelPrefixes(ts []Template) []string {
+	set := map[string]bool{}
+	for _, t := range ts {
+		for k := range t.Labels {
+			k = strings.ToLower(k)
+			seg, _, _ := strings.Cut(k, ".")
+			if lit, _, hasPh := strings.Cut(seg, "{{"); hasPh {
+				if lit != "" {
+					set[lit] = true
+				}
+				continue
+			}
+			if seg != "" {
+				set[seg+"."] = true
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
