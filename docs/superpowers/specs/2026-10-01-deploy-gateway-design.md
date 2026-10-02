@@ -7,7 +7,7 @@ Status: Draft for review
 
 A small, self-hosted gateway that lets semi-trusted AI agents deploy containerized apps to a Docker host **without** SSH, Docker socket, or arbitrary container configuration. Agents talk only to the gateway (MCP over streamable HTTP + a matching JSON API). The gateway is the only component that talks to Docker and is the trust boundary.
 
-The gateway is **generic**: nothing is hard-coded to sebmahr.de. Domains, proxy networks, entrypoints, cert resolvers and middlewares are expressed in admin-defined *exposure templates*.
+The gateway is **generic**: nothing is hard-coded to a specific host or domain. Domains, proxy networks, entrypoints, cert resolvers and middlewares are expressed in admin-defined *exposure templates*.
 
 ### Success criteria
 
@@ -26,7 +26,7 @@ Git/Dockerfile builds (agents build images in their own CI/CD), image allowlists
 - A compromised token may only affect apps in its own workspace.
 - The gateway holds the Docker socket; it must be small, auditable and strict.
 - The admin is trusted (templates and quotas are admin input), but the UI guards against obvious footguns.
-- Other containers on shared networks (e.g. `all`) are untrusted with respect to the admin listener.
+- Other containers on shared networks (e.g. a network shared with the reverse proxy) are untrusted with respect to the admin listener.
 
 ## 3. Key decisions
 
@@ -176,7 +176,7 @@ labels:
   traefik.docker.network: apps
   traefik.http.routers.{{id}}.rule: Host(`{{host}}`)
   traefik.http.routers.{{id}}.entrypoints: websecure
-  traefik.http.routers.{{id}}.tls.certresolver: netcup
+  traefik.http.routers.{{id}}.tls.certresolver: letsencrypt
   traefik.http.services.{{id}}.loadbalancer.server.port: "{{port}}"
 ```
 
@@ -192,10 +192,10 @@ The admin decides hostnames via `host_pattern`; the admin UI rejects any templat
 - `host_pattern` is optional. Without it, the template only adds networks and labels (e.g. internal-only routing); no hostname is produced.
 - If set, it has the form `<subdomain>.<suffix>`:
   - `<subdomain>` consists **only** of placeholders separated by literal `-` or `.`; each placeholder at most once; `{{workspace}}` and `{{app}}` are required, `{{service}}` is optional. Examples: `{{app}}.{{workspace}}`, `{{app}}-{{workspace}}`, `{{service}}-{{app}}-{{workspace}}`.
-  - `<suffix>` is a literal, valid domain (e.g. `apps.sebmahr.de`).
+  - `<suffix>` is a literal, valid domain (e.g. `apps.example.com`).
 - Within one template, rendered hosts are unique because workspace and service names contain no hyphens and no name contains a dot (§5), so the subdomain parses back to exactly one (workspace, app[, service]). When `{{service}}` is absent, the one-service-per-template-per-stack rule (§7) keeps hosts unique.
-- Across templates, the UI rejects a suffix that equals another template's suffix or is nested in it at a label boundary (`apps.sebmahr.de` vs `x.apps.sebmahr.de`). Two templates can therefore never produce the same host.
-- Separation from manually deployed stacks is the admin's choice of suffix (e.g. manual stacks on `x.sebmahr.de`, gateway apps on `x.apps.sebmahr.de`). The template editor shows a live preview of example hosts.
+- Across templates, the UI rejects a suffix that equals another template's suffix or is nested in it at a label boundary (`apps.example.com` vs `x.apps.example.com`). Two templates can therefore never produce the same host.
+- Separation from manually deployed stacks is the admin's choice of suffix (e.g. manual stacks on `x.example.com`, gateway apps on `x.apps.example.com`). The template editor shows a live preview of example hosts.
 
 ## 9. Rendering and hardening
 
@@ -369,10 +369,10 @@ Audit params redact environment **values** (`***`); keys are kept. Retention job
 ## 17. Deployment
 
 - Image: multi-stage; `node` stage builds `web/` (`npm ci && npm run build`) → `golang` stage builds the binary with the embedded UI → `gcr.io/distroless/static` + gateway binary + standalone `docker-compose` v2 binary (pinned version, SHA-256 verified).
-- Example stack `~/docker/deploy-gateway/docker-compose.yml` (pinned image tag, `container_name: deploy-gateway`, `restart: unless-stopped`):
+- Example stack `deploy/docker-compose.yml` (pinned image tag, `container_name: deploy-gateway`, `restart: unless-stopped`):
   - mounts: `/var/run/docker.sock`, `./data:/data`, `<abs>/workspaces:<abs>/workspaces`, `~/.docker/config.json:/docker/config.json:ro`
   - `cap_drop: [ALL]`, `cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]`, `read_only: true`, `tmpfs: /tmp`, `no-new-privileges:true`
-  - network `all`; Traefik routers: `mcp.<domain>` → 8080; `deploy-admin.<domain>` → 8081 with `authelia@docker`
+  - the reverse-proxy network; Traefik routers: agent host → 8080; admin host → 8081 (optionally behind a forward-auth middleware)
   - the gateway does not join `apps`
 - Startup checks (fail fast): Docker reachable; compose binary works; same-path workspaces mount; `WORKSPACES_ROOT` contains no symlinks; admin auth config valid. Warnings only: template networks missing (so the admin UI that fixes them stays reachable); orphaned labelled containers.
 - Apps keep running if the gateway is down (`restart: unless-stopped`).
@@ -380,7 +380,7 @@ Audit params redact environment **values** (`***`); keys are kept. Retention job
 ### Operator checklist (manual, not automated by the gateway)
 
 - Create external network `apps`; attach Traefik to it.
-- Wildcard DNS for the apps domain (a resolving record for `*.apps.sebmahr.de` appears to exist already; verify A/AAAA) and a wildcard certificate via the DNS challenge, or per-host certs.
+- Wildcard DNS for the apps domain (e.g. `*.apps.example.com`) and a wildcard certificate via the DNS challenge, or per-host certs.
 - Host `~/.docker/config.json` must use inline `auths`, not a `credsStore`.
 - Published ports: Docker port publishing bypasses `ufw`/host firewall rules. Anything published on bind IP `0.0.0.0` is reachable from every network the host is on, without Traefik or Authelia. Choose each workspace's bind IP (`0.0.0.0`, LAN IP, or `127.0.0.1`) and port range deliberately, and keep ranges clear of ports used by host services.
 - Create exposure templates and the first workspace in the admin UI.

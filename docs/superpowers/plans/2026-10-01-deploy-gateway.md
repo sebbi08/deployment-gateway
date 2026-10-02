@@ -122,7 +122,7 @@ web/src/test/                         Vitest setup and helpers
 - [ ] **Step 1: Initialise the repository and module**
 
 ```bash
-cd /home/sebastian/code/valantic/deployment-mcp
+cd <repo>
 git init
 go mod init github.com/sebmahr/deploy-gateway
 go mod edit -go=1.27
@@ -13059,7 +13059,7 @@ func (f fakeMounts) MountSource(context.Context, string, string) (string, bool, 
 }
 
 func TestCheckSameMount(t *testing.T) {
-	root := "/home/sebastian/docker/deploy-gateway/workspaces"
+	root := "/srv/deploy-gateway/workspaces"
 	cases := []struct {
 		name    string
 		m       fakeMounts
@@ -13586,18 +13586,18 @@ internal/webui/dist/index.html
 ```yaml
 services:
   deploy-gateway:
-    image: ghcr.io/sebmahr/deploy-gateway:0.1.0
+    image: ghcr.io/sebbi08/deployment-gateway:0.1.0
     container_name: deploy-gateway
     restart: unless-stopped
     env_file: .env
     environment:
       # Must be the identical absolute path on the host and in the container.
-      WORKSPACES_ROOT: /home/sebastian/docker/deploy-gateway/workspaces
+      WORKSPACES_ROOT: /srv/deploy-gateway/workspaces
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./data:/data
-      - /home/sebastian/docker/deploy-gateway/workspaces:/home/sebastian/docker/deploy-gateway/workspaces
-      - /home/sebastian/.docker/config.json:/docker/config.json:ro
+      - /srv/deploy-gateway/workspaces:/srv/deploy-gateway/workspaces
+      - /root/.docker/config.json:/docker/config.json:ro
     cap_drop: [ALL]
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
     security_opt: ["no-new-privileges:true"]
@@ -13606,11 +13606,11 @@ services:
     labels:
       traefik.enable: true
       traefik.docker.network: all
-      traefik.http.routers.deploy-gateway-mcp.rule: Host(`deploy-mcp.sebmahr.de`)
+      traefik.http.routers.deploy-gateway-mcp.rule: Host(`mcp.example.com`)
       traefik.http.routers.deploy-gateway-mcp.entrypoints: websecure
       traefik.http.routers.deploy-gateway-mcp.service: deploy-gateway-mcp
       traefik.http.services.deploy-gateway-mcp.loadbalancer.server.port: 8080
-      traefik.http.routers.deploy-gateway-admin.rule: Host(`deploy-admin.sebmahr.de`)
+      traefik.http.routers.deploy-gateway-admin.rule: Host(`deploy-admin.example.com`)
       traefik.http.routers.deploy-gateway-admin.entrypoints: websecure
       traefik.http.routers.deploy-gateway-admin.middlewares: authelia@docker
       traefik.http.routers.deploy-gateway-admin.service: deploy-gateway-admin
@@ -13625,7 +13625,7 @@ networks:
 `deploy/.env.example`:
 
 ```dotenv
-# Admin login. Generate with:  docker run --rm -i ghcr.io/sebmahr/deploy-gateway:0.1.0 hash-password
+# Admin login. Generate with:  docker run --rm -i ghcr.io/sebbi08/deployment-gateway:0.1.0 hash-password
 # Keep the single quotes: the hash contains $ characters that compose would otherwise interpolate.
 ADMIN_PASSWORD_HASH='$argon2id$v=19$m=65536,t=3,p=2$REPLACE$REPLACE'
 
@@ -13664,7 +13664,7 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
 
 1. Build and push the image (or build on the host):
    ```bash
-   docker build -t ghcr.io/sebmahr/deploy-gateway:0.1.0 --build-arg VERSION=0.1.0 .
+   docker build -t ghcr.io/sebbi08/deployment-gateway:0.1.0 --build-arg VERSION=0.1.0 .
    ```
 2. Create the stack folder and the workspaces folder:
    ```bash
@@ -13674,7 +13674,7 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
    ```
 3. Generate the admin password hash and paste it into `.env` (single quotes!):
    ```bash
-   docker run --rm -i ghcr.io/sebmahr/deploy-gateway:0.1.0 hash-password
+   docker run --rm -i ghcr.io/sebbi08/deployment-gateway:0.1.0 hash-password
    ```
 4. Registry access: `docker login <registry>` on the host. `~/.docker/config.json` must contain inline `auths` (no `credsStore`), because it is mounted into the gateway.
 5. Start: `cd ~/docker/deploy-gateway && docker compose up -d && docker logs deploy-gateway`.
@@ -13682,16 +13682,16 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
 ### Operator checklist (manual)
 
 - Create the shared network for agent apps and attach Traefik to it: `docker network create apps`, then add `apps` to Traefik's networks.
-- DNS: a wildcard record for the apps domain (e.g. `*.apps.sebmahr.de`) pointing to the host, and a wildcard certificate via the DNS challenge (or per-host certificates).
+- DNS: a wildcard record for the apps domain (e.g. `*.apps.example.com`) pointing to the host, and a wildcard certificate via the DNS challenge (or per-host certificates).
 - Published ports bypass `ufw`. Choose each workspace's bind IP (`0.0.0.0`, the LAN IP, or `127.0.0.1`) and port range deliberately.
 - Do not set `hostname:` on the gateway container; the startup mount check finds its own container by hostname.
 
 ## Admin UI
 
-Open the admin host (e.g. `https://deploy-admin.sebmahr.de`).
+Open the admin host (e.g. `https://deploy-admin.example.com`).
 
 1. **Templates** → create an exposure template, for example:
-   - Name `public-web`, host pattern `{{app}}.{{workspace}}.apps.sebmahr.de` (or `{{app}}-{{workspace}}.apps.sebmahr.de` for a single-level wildcard cert), network `apps`
+   - Name `public-web`, host pattern `{{app}}.{{workspace}}.apps.example.com` (or `{{app}}-{{workspace}}.apps.example.com` for a single-level wildcard cert), network `apps`
    - Labels:
      ```
      traefik.enable=true
@@ -13708,7 +13708,7 @@ Open the admin host (e.g. `https://deploy-admin.sebmahr.de`).
 Claude Code:
 
 ```bash
-claude mcp add --transport http deploy https://deploy-mcp.sebmahr.de/mcp \
+claude mcp add --transport http deploy https://mcp.example.com/mcp \
   --header "Authorization: Bearer dgw_..."
 ```
 

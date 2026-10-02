@@ -19,36 +19,37 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
    ```bash
    docker build -t ghcr.io/sebbi08/deployment-gateway:0.1.0 --build-arg VERSION=0.1.0 .
    ```
-2. Create the stack folder and the workspaces folder:
+2. Create the stack folder (any absolute path; `/srv/deploy-gateway` is used as the example) and copy the example files:
    ```bash
-   mkdir -p ~/docker/deploy-gateway/{data,workspaces}
-   cp deploy/docker-compose.yml deploy/.env.example ~/docker/deploy-gateway/
-   mv ~/docker/deploy-gateway/.env.example ~/docker/deploy-gateway/.env
+   sudo mkdir -p /srv/deploy-gateway/{data,workspaces}
+   cp deploy/docker-compose.yml /srv/deploy-gateway/
+   cp deploy/.env.example /srv/deploy-gateway/.env
    ```
+   Then edit `/srv/deploy-gateway/.env`: `GATEWAY_VERSION`, `GATEWAY_DIR` (the stack folder — the workspaces path must be identical on host and in the container, the compose file derives both from it), `DOCKER_CONFIG_FILE`, `MCP_HOST`, `ADMIN_HOST`, `PROXY_NETWORK` and `TRAEFIK_ENTRYPOINT`.
 3. Generate the admin password hash and paste it into `.env` (single quotes!):
    ```bash
    docker run --rm -i ghcr.io/sebbi08/deployment-gateway:0.1.0 hash-password
    ```
-4. Registry access: `docker login <registry>` on the host. `~/.docker/config.json` must contain inline `auths` (no `credsStore`), because it is mounted into the gateway.
-5. Start: `cd ~/docker/deploy-gateway && docker compose up -d && docker logs deploy-gateway`.
+4. Registry access: `docker login <registry>` on the host for every registry agents pull from. The file named by `DOCKER_CONFIG_FILE` must exist and contain inline `auths` (no `credsStore`), because it is mounted into the gateway.
+5. Start: `cd /srv/deploy-gateway && docker compose up -d && docker logs deploy-gateway`.
 
 ### Operator checklist (manual)
 
-- Create the shared network for agent apps and attach Traefik to it: `docker network create apps`, then add `apps` to Traefik's networks.
-- DNS: a wildcard record for the apps domain (e.g. `*.apps.sebmahr.de`) pointing to the host, and a wildcard certificate via the DNS challenge (or per-host certificates).
+- Create a dedicated network for agent apps and attach your reverse proxy to it: `docker network create apps`, then add `apps` to the proxy's networks. Keep agent apps off any network your own stacks share.
+- DNS: a wildcard record for the apps domain (e.g. `*.apps.example.com`) pointing to the host, and a wildcard certificate via the DNS challenge (or per-host certificates).
 - Published ports bypass `ufw`. Choose each workspace's bind IP (`0.0.0.0`, the LAN IP, or `127.0.0.1`) and port range deliberately.
 - The startup mount check finds the gateway's own container by hostname, and startup fails if it runs in a container it cannot find. Either keep the default hostname or set `SELF_CONTAINER_ID` to the container name/ID (e.g. `SELF_CONTAINER_ID=deploy-gateway`, matching `container_name`).
 
 ## Configuration notes
 
-Configuration is read from environment variables (see `deploy/.env.example`): `ADMIN_PASSWORD_HASH`, `ADMIN_TRUSTED_PROXIES` / `ADMIN_USER_HEADER`, `TRUSTED_PROXIES`, `DEPLOY_TIMEOUT`, `DEPLOY_CONCURRENCY`, `WORKSPACES_ROOT`, `DATA_DIR`. `ADMIN_TRUSTED_PROXIES` and `TRUSTED_PROXIES` take comma-separated IPs/CIDRs of the reverse proxy (e.g. Traefik's `172.19.0.149`); catch-all prefixes `0.0.0.0/0` and `::/0` are rejected at startup because they would let any client spoof its IP or admin user header. Optional: `SELF_CONTAINER_ID` (name or ID of the gateway's own container, e.g. `deploy-gateway`; needed only when the container has a custom `hostname:`, because the startup mount check otherwise finds itself by hostname and fails closed if it cannot).
+Configuration is read from environment variables (see `deploy/.env.example`): `ADMIN_PASSWORD_HASH`, `ADMIN_TRUSTED_PROXIES` / `ADMIN_USER_HEADER`, `TRUSTED_PROXIES`, `DEPLOY_TIMEOUT`, `DEPLOY_CONCURRENCY`, `WORKSPACES_ROOT`, `DATA_DIR`. `ADMIN_TRUSTED_PROXIES` and `TRUSTED_PROXIES` take comma-separated IPs/CIDRs of the reverse proxy (e.g. the IP of your Traefik container); catch-all prefixes `0.0.0.0/0` and `::/0` are rejected at startup because they would let any client spoof its IP or admin user header. Optional: `SELF_CONTAINER_ID` (name or ID of the gateway's own container, e.g. `deploy-gateway`; needed only when the container has a custom `hostname:`, because the startup mount check otherwise finds itself by hostname and fails closed if it cannot).
 
 ## Admin UI
 
-Open the admin host (e.g. `https://deploy-admin.sebmahr.de`).
+Open the admin host (`https://$ADMIN_HOST`, e.g. `https://deploy-admin.example.com`). Optionally protect it with a forward-auth middleware (Authelia, oauth2-proxy, …) via the commented label in `deploy/docker-compose.yml`.
 
 1. **Templates** → create an exposure template, for example:
-   - Name `public-web`, host pattern `{{app}}.{{workspace}}.apps.sebmahr.de` (or `{{app}}-{{workspace}}.apps.sebmahr.de` for a single-level wildcard cert), network `apps`
+   - Name `public-web`, host pattern `{{app}}.{{workspace}}.apps.example.com` (or `{{app}}-{{workspace}}.apps.example.com` for a single-level wildcard cert), network `apps`
    - Labels:
      ```
      traefik.enable=true
@@ -65,7 +66,7 @@ Open the admin host (e.g. `https://deploy-admin.sebmahr.de`).
 Claude Code:
 
 ```bash
-claude mcp add --transport http deploy https://deploy-mcp.sebmahr.de/mcp \
+claude mcp add --transport http deploy https://mcp.example.com/mcp \
   --header "Authorization: Bearer dgw_..."
 ```
 
