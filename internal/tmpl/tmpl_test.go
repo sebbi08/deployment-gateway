@@ -49,6 +49,7 @@ func TestValidateRejects(t *testing.T) {
 		{"host network", func(t *Template) { t.Networks = []string{"host"} }, `"host"`},
 		{"reserved dg- network", func(t *Template) { t.Networks = []string{"dg-alice-shop"} }, "dg-"},
 		{"owner label", func(t *Template) { t.Labels["deploy-gateway.workspace"] = "x" }, "deploy-gateway."},
+		{"compose label", func(t *Template) { t.Labels["Com.Docker.Compose.project"] = "x" }, "com.docker.compose."},
 		{"label key starts with placeholder", func(t *Template) { t.Labels["{{app}}.x"] = "y" }, "must not start with a placeholder"},
 		{"unknown placeholder", func(t *Template) { t.Labels["x"] = "{{secret}}" }, "unknown placeholder"},
 		{"malformed placeholder", func(t *Template) { t.Labels["x"] = "{{app" }, "malformed"},

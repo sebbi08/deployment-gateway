@@ -114,3 +114,19 @@ func TestCheckRuntimeAcceptsNoNewPrivilegesSpellings(t *testing.T) {
 		}
 	}
 }
+
+// Compose sets com.docker.compose.* itself (images carrying them are rejected
+// before up), so they never count as unrendered even if a template reserves
+// the broader "com." namespace.
+func TestCheckRuntimeIgnoresComposeLabels(t *testing.T) {
+	p := policy()
+	p.ReservedPrefixes = append(p.ReservedPrefixes, "com.")
+	f := goodFacts()
+	if v := CheckRuntime(f, p); len(v) != 0 {
+		t.Fatalf("compose labels flagged: %v", v)
+	}
+	f.Labels["com.example.route"] = "x"
+	if v := CheckRuntime(f, p); len(v) != 1 || !strings.Contains(v[0], "com.example.route") {
+		t.Fatalf("unrendered com.example label not flagged: %v", v)
+	}
+}

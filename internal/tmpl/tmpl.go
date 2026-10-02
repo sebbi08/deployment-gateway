@@ -87,6 +87,9 @@ func Validate(t Template, others []Template) error {
 		if strings.HasPrefix(strings.ToLower(k), names.LabelPrefix) {
 			add("label key " + strconv.Quote(k) + ": the deploy-gateway. prefix is reserved")
 		}
+		if strings.HasPrefix(strings.ToLower(k), "com.docker.compose.") {
+			add("label key " + strconv.Quote(k) + ": the com.docker.compose. prefix is reserved for compose")
+		}
 		if len(v) > 4096 {
 			add("label " + strconv.Quote(k) + ": value longer than 4096 bytes")
 		}

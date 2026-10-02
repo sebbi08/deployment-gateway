@@ -132,7 +132,9 @@ func CheckRuntime(f Facts, p RuntimePolicy) []string {
 		add("owner labels do not match %s/%s", p.Workspace, p.App)
 	}
 	for _, k := range slices.Sorted(maps.Keys(f.Labels)) {
-		if !HasReservedPrefix(k, p.ReservedPrefixes) {
+		// Compose sets com.docker.compose.* itself; images carrying such
+		// labels are rejected before up and templates cannot render them.
+		if !HasReservedPrefix(k, p.ReservedPrefixes) || HasReservedPrefix(k, []string{"com.docker.compose."}) {
 			continue
 		}
 		if want, ok := p.Labels[k]; !ok || want != f.Labels[k] {
