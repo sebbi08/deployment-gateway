@@ -203,3 +203,21 @@ func TestDeployIntoDeletedWorkspaceIsNotFound(t *testing.T) {
 		t.Fatalf("compose ran: %v", h.compose.Calls())
 	}
 }
+
+func TestWorkspaceBindIPIsCanonical(t *testing.T) {
+	h := newHarness(t)
+	w, err := h.svc.CreateWorkspace(h.ctx, "admin", "alice", store.BuiltinDefaultQuota(), service.PortSettings{BindIP: "::ffff:127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.GetWorkspace(h.ctx, w.ID); got.PortBindIP != "127.0.0.1" {
+		t.Fatalf("created bind IP = %q", got.PortBindIP)
+	}
+	w.PortBindIP = "::ffff:192.168.0.53"
+	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := h.st.GetWorkspace(h.ctx, w.ID); got.PortBindIP != "192.168.0.53" {
+		t.Fatalf("updated bind IP = %q", got.PortBindIP)
+	}
+}

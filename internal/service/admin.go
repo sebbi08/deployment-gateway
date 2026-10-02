@@ -23,13 +23,18 @@ type PortSettings struct {
 	BindIP string `json:"bind_ip"`
 }
 
-func (s *Service) validatePortSettings(ctx context.Context, ps PortSettings, excludeID int64) error {
+// validatePortSettings validates ps and canonicalises ps.BindIP (an
+// IPv4-mapped IPv6 address is stored as plain IPv4) so the runtime check
+// compares against the form Docker reports.
+func (s *Service) validatePortSettings(ctx context.Context, ps *PortSettings, excludeID int64) error {
 	if !(ps.Start == 0 && ps.End == 0) && (ps.Start < 1024 || ps.End > 65535 || ps.Start > ps.End) {
 		return validationError("ports", "port range must be within 1024-65535 with start <= end (or 0-0 to disable publishing)")
 	}
-	if _, err := netip.ParseAddr(ps.BindIP); err != nil {
+	addr, err := netip.ParseAddr(ps.BindIP)
+	if err != nil {
 		return validationError("bind_ip", "bind IP must be an IP address")
 	}
+	ps.BindIP = addr.Unmap().String()
 	if ps.Start > 0 {
 		name, err := s.Store.OverlappingWorkspace(ctx, ps.Start, ps.End, excludeID)
 		if err != nil {
@@ -50,7 +55,7 @@ func (s *Service) CreateWorkspace(ctx context.Context, actor, name string, q sto
 	if err = q.Validate(); err != nil {
 		return w, validationError("quota", err.Error())
 	}
-	if err = s.validatePortSettings(ctx, ps, 0); err != nil {
+	if err = s.validatePortSettings(ctx, &ps, 0); err != nil {
 		return w, err
 	}
 	if err = os.MkdirAll(s.workspaceDir(name), 0o750); err != nil {
@@ -113,9 +118,11 @@ func (s *Service) UpdateWorkspace(ctx context.Context, actor string, w store.Wor
 	if err = w.Quota.Validate(); err != nil {
 		return validationError("quota", err.Error())
 	}
-	if err = s.validatePortSettings(ctx, PortSettings{Start: w.PortRangeStart, End: w.PortRangeEnd, BindIP: w.PortBindIP}, w.ID); err != nil {
+	ps := PortSettings{Start: w.PortRangeStart, End: w.PortRangeEnd, BindIP: w.PortBindIP}
+	if err = s.validatePortSettings(ctx, &ps, w.ID); err != nil {
 		return err
 	}
+	w.PortBindIP = ps.BindIP
 	claims, err := s.Store.ListPortClaims(ctx, w.ID)
 	if err != nil {
 		return err
