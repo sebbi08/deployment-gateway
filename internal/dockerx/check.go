@@ -82,7 +82,15 @@ func CheckRuntime(f Facts, p RuntimePolicy) []string {
 	if !slices.ContainsFunc(f.CapDrop, func(c string) bool { return strings.EqualFold(c, "ALL") }) {
 		add("cap_drop does not contain ALL")
 	}
-	if !slices.Contains(f.SecurityOpt, "no-new-privileges:true") && !slices.Contains(f.SecurityOpt, "no-new-privileges") {
+	// Allowlist: only no-new-privileges spellings, at least one present.
+	// Anything else (seccomp=unconfined, apparmor=..., label=...,
+	// no-new-privileges:false) is a violation.
+	for _, o := range f.SecurityOpt {
+		if !slices.Contains(nnpOpts, o) {
+			add("security_opt %q not allowed", o)
+		}
+	}
+	if len(f.SecurityOpt) == 0 {
 		add("no-new-privileges not set")
 	}
 	for _, m := range []struct{ name, mode string }{
@@ -136,6 +144,8 @@ func CheckRuntime(f Facts, p RuntimePolicy) []string {
 	}
 	return v
 }
+
+var nnpOpts = []string{"no-new-privileges", "no-new-privileges:true", "no-new-privileges=true"}
 
 // HasReservedPrefix reports whether key (case-insensitively) lies in one of
 // the reserved label namespaces. A prefix "x." also matches the bare key "x".

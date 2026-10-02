@@ -47,6 +47,10 @@ func TestCheckRuntimeRejects(t *testing.T) {
 		{"cap_add", func(f *Facts) { f.CapAdd = []string{"NET_ADMIN"} }, "cap_add"},
 		{"no cap_drop", func(f *Facts) { f.CapDrop = nil }, "cap_drop"},
 		{"no nnp", func(f *Facts) { f.SecurityOpt = nil }, "no-new-privileges"},
+		{"seccomp unconfined", func(f *Facts) { f.SecurityOpt = append(f.SecurityOpt, "seccomp=unconfined") }, "seccomp=unconfined"},
+		{"apparmor unconfined", func(f *Facts) { f.SecurityOpt = append(f.SecurityOpt, "apparmor=unconfined") }, "apparmor=unconfined"},
+		{"nnp false", func(f *Facts) { f.SecurityOpt = []string{"no-new-privileges:false"} }, "no-new-privileges:false"},
+		{"nnp true then false", func(f *Facts) { f.SecurityOpt = []string{"no-new-privileges:true", "no-new-privileges=false"} }, "no-new-privileges=false"},
 		{"host network", func(f *Facts) { f.NetworkMode = "host" }, "network mode"},
 		{"container network", func(f *Facts) { f.NetworkMode = "container:abc" }, "network mode"},
 		{"host pid", func(f *Facts) { f.PidMode = "host" }, "pid mode"},
@@ -97,6 +101,16 @@ func TestHasReservedPrefix(t *testing.T) {
 	} {
 		if got := HasReservedPrefix(key, prefixes); got != want {
 			t.Errorf("HasReservedPrefix(%q) = %v, want %v", key, got, want)
+		}
+	}
+}
+
+func TestCheckRuntimeAcceptsNoNewPrivilegesSpellings(t *testing.T) {
+	for _, opts := range [][]string{{"no-new-privileges"}, {"no-new-privileges:true"}, {"no-new-privileges=true"}, {"no-new-privileges", "no-new-privileges:true"}} {
+		f := goodFacts()
+		f.SecurityOpt = opts
+		if v := CheckRuntime(f, policy()); len(v) != 0 {
+			t.Errorf("%v: unexpected violations %v", opts, v)
 		}
 	}
 }
