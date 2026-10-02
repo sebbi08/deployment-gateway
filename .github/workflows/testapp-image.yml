@@ -1,0 +1,79 @@
+name: Test app image
+
+# Manually triggered: builds examples/testapp and pushes
+# ghcr.io/<owner>/<repo>-testapp:<version>. GHCR creates the package as
+# private, which makes it a good target for testing private-registry pulls.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish, e.g. 0.1.0 (no leading v)"
+        required: true
+        type: string
+
+concurrency:
+  group: testapp-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  VERSION: ${{ inputs.version }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Validate version
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::version must look like 1.2.3, got '$VERSION'"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./examples/testapp/
+
+      - name: Image name
+        run: |
+          repo="${GITHUB_REPOSITORY,,}"
+          echo "IMAGE=ghcr.io/${repo}-testapp" >> "$GITHUB_ENV"
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Refuse to overwrite an existing version
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            echo "::error::$IMAGE:$VERSION already exists"
+            exit 1
+          fi
+
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: examples/testapp/Dockerfile
+          platforms: linux/amd64
+          push: true
+          build-args: VERSION=${{ inputs.version }}
+          tags: ${{ env.IMAGE }}:${{ inputs.version }}
+          cache-from: type=gha,scope=testapp
+          cache-to: type=gha,mode=max,scope=testapp
+
+      - name: Summary
+        run: echo "Pushed \`$IMAGE:$VERSION\` (private by default on GHCR)." >> "$GITHUB_STEP_SUMMARY"

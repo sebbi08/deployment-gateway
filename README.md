@@ -83,6 +83,10 @@ Example stack:
 }}}
 ```
 
+## Trying it out
+
+`examples/testapp` is a small test service plus a manual workflow (**Actions → Test app image**) that publishes it as a private GHCR package; its README walks through private-registry access, deploy, restart, persistence and negative checks.
+
 ## Development
 
 ```bash
