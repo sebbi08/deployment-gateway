@@ -143,6 +143,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	ip := auth.ClientIP(r, s.opts.TrustedProxies)
 	if s.limiter.Blocked(ip) {
+		s.opts.Logger.Warn("admin login rate limited", "client_ip", ip)
 		writeJSON(w, http.StatusTooManyRequests, apiError{Code: "rate_limited", Message: "too many failed attempts; try again later"})
 		return
 	}
@@ -157,11 +158,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	case s.loginSlots <- struct{}{}:
 		defer func() { <-s.loginSlots }()
 	default:
+		s.opts.Logger.Warn("admin login rate limited (concurrent attempts)", "client_ip", ip)
 		writeJSON(w, http.StatusTooManyRequests, apiError{Code: "rate_limited", Message: "too many concurrent login attempts; try again"})
 		return
 	}
 	if !auth.CheckPassword(s.opts.PasswordHash, body.Password) {
 		s.limiter.Fail(ip)
+		s.opts.Logger.Warn("admin login failed", "client_ip", ip) // never log the password
 		writeJSON(w, http.StatusUnauthorized, apiError{Code: "login_required", Message: "wrong password"})
 		return
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -34,6 +35,11 @@ type testEnv struct {
 
 func newEnv(t *testing.T, proxy bool, ui fs.FS) *testEnv {
 	t.Helper()
+	return newEnvWith(t, proxy, ui, nil)
+}
+
+func newEnvWith(t *testing.T, proxy bool, ui fs.FS, opt func(*Options)) *testEnv {
+	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "admin.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -55,6 +61,9 @@ func newEnv(t *testing.T, proxy bool, ui fs.FS) *testEnv {
 			t.Fatal(err)
 		}
 		o.PasswordHash = hash
+	}
+	if opt != nil {
+		opt(&o)
 	}
 	return &testEnv{h: New(o).Handler(), svc: svc, st: st, docker: docker, root: root}
 }
@@ -132,6 +141,30 @@ func TestLoginRateLimit(t *testing.T) {
 	}
 	if w := e.do("POST", "/api/admin/login", map[string]string{"password": "correct horse battery"}); w.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected 429, got %d", w.Code)
+	}
+}
+
+func TestFailedLoginsAreLogged(t *testing.T) {
+	var buf bytes.Buffer
+	e := newEnvWith(t, false, builtUI, func(o *Options) { o.Logger = slog.New(slog.NewTextHandler(&buf, nil)) })
+	from := func(r *http.Request) { r.RemoteAddr = "198.51.100.7:5555" }
+	e.do("POST", "/api/admin/login", map[string]string{"password": "hunter2-wrong"}, from)
+	if out := buf.String(); !strings.Contains(out, "admin login failed") || !strings.Contains(out, "198.51.100.7") {
+		t.Fatalf("failed login not logged with client IP: %q", out)
+	}
+	for i := 0; i < 10; i++ {
+		e.do("POST", "/api/admin/login", map[string]string{"password": "hunter2-wrong"}, from)
+	}
+	if out := buf.String(); !strings.Contains(out, "admin login rate limited") {
+		t.Fatalf("rate-limited login not logged: %q", out)
+	}
+	buf.Reset()
+	e.do("POST", "/api/admin/login", map[string]string{"password": "correct horse battery"}, func(r *http.Request) { r.RemoteAddr = "198.51.100.8:1" })
+	if strings.Contains(buf.String(), "failed") {
+		t.Fatalf("successful login logged as failure: %q", buf.String())
+	}
+	if strings.Contains(buf.String(), "hunter2") || strings.Contains(buf.String(), "correct horse") {
+		t.Fatal("password logged")
 	}
 }
 
