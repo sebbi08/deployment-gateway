@@ -149,6 +149,10 @@ func (s *Service) prepare(ctx context.Context, ws store.Workspace, app string, s
 	if err := os.WriteFile(next, pl.out.YAML, 0o640); err != nil {
 		return store.App{}, nil, err
 	}
+	if err := s.own(next); err != nil {
+		os.Remove(next)
+		return store.App{}, nil, err
+	}
 	appRec, err := s.Store.SaveDeployment(ctx, ws.ID, app, pl.memBytes, pl.cpus, pl.out.Hosts, pl.claims)
 	if err != nil {
 		os.Remove(next)
@@ -169,6 +173,10 @@ func (s *Service) prepare(ctx context.Context, ws store.Workspace, app string, s
 			if err := os.Rename(cur, s.prevFile(ws.Name, app)); err != nil {
 				return store.App{}, nil, err
 			}
+			// prev may predate FILE_OWNER.
+			if err := s.own(s.prevFile(ws.Name, app)); err != nil {
+				return store.App{}, nil, err
+			}
 		}
 	}
 	if err := os.Rename(next, cur); err != nil {
@@ -180,6 +188,10 @@ func (s *Service) prepare(ctx context.Context, ws store.Workspace, app string, s
 func (s *Service) prepareDirs(ws, app string, st *stack.Stack) error {
 	data := s.dataDir(ws, app)
 	if err := os.MkdirAll(data, 0o750); err != nil {
+		return err
+	}
+	// Re-applied on every deploy so existing folders follow FILE_OWNER changes.
+	if err := s.own(s.workspaceDir(ws), s.appDir(ws, app), data); err != nil {
 		return err
 	}
 	for _, name := range stack.ServiceNames(st) {

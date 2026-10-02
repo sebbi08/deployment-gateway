@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -49,7 +50,10 @@ type Service struct {
 	Docker  Docker
 	Root    string
 	Chown   func(path string, uid, gid int) error
-	Logger  *slog.Logger
+	// FileOwner, if set, owns gateway-managed folders and compose files
+	// (FILE_OWNER). Service data dirs keep the container user's ownership.
+	FileOwner *Owner
+	Logger    *slog.Logger
 
 	wsLocks sync.Map // workspace name -> *sync.Mutex
 	disk    *diskCache
@@ -58,6 +62,25 @@ type Service struct {
 func New(st *store.Store, c Compose, d Docker, root string) *Service {
 	return &Service{Store: st, Compose: c, Docker: d, Root: root, Chown: os.Chown,
 		Logger: slog.Default(), disk: newDiskCache(10 * time.Minute)}
+}
+
+// Owner is a numeric uid/gid pair.
+type Owner struct {
+	UID int
+	GID int
+}
+
+// own applies FileOwner to gateway-managed paths; a no-op when unset.
+func (s *Service) own(paths ...string) error {
+	if s.FileOwner == nil {
+		return nil
+	}
+	for _, p := range paths {
+		if err := s.Chown(p, s.FileOwner.UID, s.FileOwner.GID); err != nil {
+			return fmt.Errorf("chown %s: %w", p, err)
+		}
+	}
+	return nil
 }
 
 func (s *Service) workspaceDir(ws string) string { return filepath.Join(s.Root, ws) }

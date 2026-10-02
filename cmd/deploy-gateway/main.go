@@ -168,6 +168,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		Timeout: cfg.DeployTimeout, Concurrency: cfg.DeployConcurrency})
 	svc := service.New(st, run, dc, root)
 	svc.Logger = logger
+	if cfg.FileOwnerSet {
+		svc.FileOwner = &service.Owner{UID: cfg.FileUID, GID: cfg.FileGID}
+	}
 	warnMissingNetworks(ctx, st, dc, logger)
 	if orphans, err := svc.Orphans(ctx); err == nil && len(orphans) > 0 {
 		logger.Warn("orphaned gateway containers found; see the admin UI", "count", len(orphans))

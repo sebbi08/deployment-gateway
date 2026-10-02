@@ -108,6 +108,7 @@ If a non-gateway container already has a composed name, compose fails and the de
 
 - The gateway creates all directories. Agents never supply host paths.
 - If a service sets `user: "uid:gid"`, `data/<svc>/` is chowned to that uid:gid; otherwise it is owned by root with mode 0755.
+- If `FILE_OWNER` is set, the workspace folder, app folder, `data/` and the compose files (`docker-compose.yml`, `.prev.yml`, `.next.yml`) are chowned to it on creation and on every deploy; `data/<svc>/` is excluded (see above).
 - `WORKSPACES_ROOT` must be mounted into the gateway container **at the identical absolute path** as on the host, because the daemon resolves bind paths on the host. Verified at startup by inspecting the gateway's own container mounts; mismatch → refuse to start.
 
 ## 7. Agent stack format
@@ -365,6 +366,7 @@ Audit params redact environment **values** (`***`); keys are kept. Retention job
 | `COMPOSE_BIN` | `/usr/local/bin/docker-compose` | |
 | `DEPLOY_TIMEOUT` | `300s` | |
 | `DEPLOY_CONCURRENCY` | `1` | env only |
+| `FILE_OWNER` | empty | optional numeric `uid:gid` owning gateway-managed folders and compose files |
 
 ## 17. Deployment
 

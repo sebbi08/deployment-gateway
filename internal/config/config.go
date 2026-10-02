@@ -25,6 +25,10 @@ type Config struct {
 	ComposeBin          string
 	DeployTimeout       time.Duration
 	DeployConcurrency   int
+	// FILE_OWNER: owner of gateway-managed folders and compose files.
+	FileOwnerSet bool
+	FileUID      int
+	FileGID      int
 }
 
 // ProxyMode is true when the built-in admin login is disabled and a trusted
@@ -68,6 +72,14 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, "DEPLOY_TIMEOUT must be a duration between 10s and 1h")
 		} else {
 			c.DeployTimeout = d
+		}
+	}
+	if s := getenv("FILE_OWNER"); s != "" {
+		uid, gid, err := parseOwner(s)
+		if err != nil {
+			errs = append(errs, "FILE_OWNER must be numeric uid:gid (e.g. 1000:1000)")
+		} else {
+			c.FileOwnerSet, c.FileUID, c.FileGID = true, uid, gid
 		}
 	}
 	if s := getenv("DEPLOY_CONCURRENCY"); s != "" {
@@ -119,4 +131,21 @@ func ParsePrefixes(s string) ([]netip.Prefix, error) {
 		out = append(out, netip.PrefixFrom(a, a.BitLen()))
 	}
 	return out, nil
+}
+
+// parseOwner parses a numeric "uid:gid" with both values in uint32 range.
+func parseOwner(s string) (uid, gid int, err error) {
+	u, g, ok := strings.Cut(s, ":")
+	if !ok {
+		return 0, 0, errors.New("missing ':'")
+	}
+	uv, err := strconv.ParseUint(u, 10, 32)
+	if err != nil {
+		return 0, 0, err
+	}
+	gv, err := strconv.ParseUint(g, 10, 32)
+	if err != nil {
+		return 0, 0, err
+	}
+	return int(uv), int(gv), nil
 }

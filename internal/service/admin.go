@@ -61,6 +61,9 @@ func (s *Service) CreateWorkspace(ctx context.Context, actor, name string, q sto
 	if err = os.MkdirAll(s.workspaceDir(name), 0o750); err != nil {
 		return w, err
 	}
+	if err = s.own(s.workspaceDir(name)); err != nil {
+		return w, err
+	}
 	w, err = s.Store.CreateWorkspace(ctx, store.Workspace{Name: name, Quota: q, PortRangeStart: ps.Start, PortRangeEnd: ps.End, PortBindIP: ps.BindIP})
 	if errors.Is(err, store.ErrExists) {
 		return w, validationError("name", "workspace already exists")

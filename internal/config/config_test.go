@@ -71,3 +71,22 @@ func TestLoadReportsAllErrors(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestLoadFileOwner(t *testing.T) {
+	base := map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": "$argon2id$x"}
+	c, err := Load(env(base))
+	if err != nil || c.FileOwnerSet {
+		t.Fatalf("unset FILE_OWNER: %+v %v", c, err)
+	}
+	base["FILE_OWNER"] = "1000:1001"
+	c, err = Load(env(base))
+	if err != nil || !c.FileOwnerSet || c.FileUID != 1000 || c.FileGID != 1001 {
+		t.Fatalf("FILE_OWNER=1000:1001: %+v %v", c, err)
+	}
+	for _, bad := range []string{"abc", "1000", "1000:", "-1:2", "1000:1001:1", "4294967296:1", "sebastian:users"} {
+		base["FILE_OWNER"] = bad
+		if _, err := Load(env(base)); err == nil || !strings.Contains(err.Error(), "FILE_OWNER") {
+			t.Errorf("FILE_OWNER=%q: want error, got %v", bad, err)
+		}
+	}
+}
