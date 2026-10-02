@@ -182,3 +182,33 @@ func TestTemplatesAndGrants(t *testing.T) {
 		t.Fatalf("templates = %+v", all)
 	}
 }
+
+func TestRevokeWorkspaceTokens(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	alice := newWorkspace(t, s, "alice", 0, 0)
+	bob := newWorkspace(t, s, "bob", 0, 0)
+	for _, h := range []string{"a1", "a2"} {
+		if _, err := s.CreateToken(ctx, alice.ID, h, h, "dgw_"+h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.CreateToken(ctx, bob.ID, "b1", "b1", "dgw_b1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RevokeWorkspaceTokens(ctx, alice.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, h := range []string{"a1", "a2"} {
+		if _, _, err := s.TokenByHash(ctx, h); !errors.Is(err, ErrNotFound) {
+			t.Fatalf("token %s still valid: %v", h, err)
+		}
+	}
+	if _, _, err := s.TokenByHash(ctx, "b1"); err != nil {
+		t.Fatalf("other workspace's token revoked: %v", err)
+	}
+	// Idempotent, also for workspaces without active tokens.
+	if err := s.RevokeWorkspaceTokens(ctx, alice.ID); err != nil {
+		t.Fatal(err)
+	}
+}

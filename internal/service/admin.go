@@ -128,8 +128,24 @@ func (s *Service) UpdateWorkspace(ctx context.Context, actor string, w store.Wor
 	return s.Store.UpdateWorkspace(ctx, w)
 }
 
+// DeleteWorkspace revokes the workspace's tokens first, so no new agent call
+// can start, then removes every app and any leftover container labelled with
+// the workspace. It holds the workspace mutex throughout (prepare re-checks
+// that the workspace still exists under it) and runs detached from request
+// cancellation so a disconnect cannot leave it half-deleted.
 func (s *Service) DeleteWorkspace(ctx context.Context, actor string, w store.Workspace) (err error) {
 	defer s.adminTrack(ctx, actor, w.Name, "delete_workspace", nil, &err, time.Now())
+	ctx = context.WithoutCancel(ctx)
+	dir := s.workspaceDir(w.Name)
+	if !names.ValidWorkspace(w.Name) || filepath.Dir(dir) != s.Root {
+		return errors.New("refusing to remove unexpected path " + dir)
+	}
+	mu := s.wsMutex(w.Name)
+	mu.Lock()
+	defer mu.Unlock()
+	if err = s.Store.RevokeWorkspaceTokens(ctx, w.ID); err != nil {
+		return err
+	}
 	apps, err := s.Store.ListApps(ctx, w.ID)
 	if err != nil {
 		return err
@@ -139,9 +155,14 @@ func (s *Service) DeleteWorkspace(ctx context.Context, actor string, w store.Wor
 			return err
 		}
 	}
-	dir := s.workspaceDir(w.Name)
-	if !names.ValidWorkspace(w.Name) || filepath.Dir(dir) != s.Root {
-		return errors.New("refusing to remove unexpected path " + dir)
+	leftovers, err := s.Docker.WorkspaceContainers(ctx, w.Name)
+	if err != nil {
+		return err
+	}
+	for _, c := range leftovers {
+		if err = s.Docker.RemoveContainer(ctx, c.ID); err != nil {
+			return err
+		}
 	}
 	if err = os.RemoveAll(dir); err != nil {
 		return err

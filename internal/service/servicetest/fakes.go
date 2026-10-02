@@ -182,6 +182,10 @@ func (d *FakeDocker) ProjectContainers(_ context.Context, ws, app string) ([]doc
 	return d.filter(func(l map[string]string) bool { return l[names.LabelWorkspace] == ws && l[names.LabelApp] == app }), nil
 }
 
+func (d *FakeDocker) WorkspaceContainers(_ context.Context, ws string) ([]dockerx.ContainerInfo, error) {
+	return d.filter(func(l map[string]string) bool { return l[names.LabelWorkspace] == ws }), nil
+}
+
 func (d *FakeDocker) ManagedContainers(_ context.Context) ([]dockerx.ContainerInfo, error) {
 	return d.filter(func(l map[string]string) bool { return l[names.LabelManaged] == "true" }), nil
 }

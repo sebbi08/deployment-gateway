@@ -46,6 +46,12 @@ func (c *Client) ProjectContainers(ctx context.Context, ws, app string) ([]Conta
 	return c.list(ctx, f)
 }
 
+// WorkspaceContainers lists every container labelled with workspace ws,
+// whether or not its app is known to the gateway.
+func (c *Client) WorkspaceContainers(ctx context.Context, ws string) ([]ContainerInfo, error) {
+	return c.list(ctx, make(client.Filters).Add("label", names.LabelWorkspace+"="+ws))
+}
+
 func (c *Client) ManagedContainers(ctx context.Context) ([]ContainerInfo, error) {
 	return c.list(ctx, make(client.Filters).Add("label", names.LabelManaged+"=true"))
 }

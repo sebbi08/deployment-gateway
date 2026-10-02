@@ -126,6 +126,13 @@ func (s *Service) prepare(ctx context.Context, ws store.Workspace, app string, s
 	mu := s.wsMutex(ws.Name)
 	mu.Lock()
 	defer mu.Unlock()
+	// DeleteWorkspace holds the same mutex; the principal may have been
+	// authenticated before the workspace was deleted.
+	if _, err := s.Store.GetWorkspace(ctx, ws.ID); errors.Is(err, store.ErrNotFound) {
+		return store.App{}, nil, notFoundError("workspace")
+	} else if err != nil {
+		return store.App{}, nil, err
+	}
 	pl, err := s.plan(ctx, ws, app, st)
 	if err != nil {
 		return store.App{}, nil, err

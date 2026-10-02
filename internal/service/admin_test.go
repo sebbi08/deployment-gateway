@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -133,5 +134,72 @@ func TestUpdateSettings(t *testing.T) {
 	q.MaxApps = 0
 	if err := h.svc.UpdateSettings(h.ctx, "admin", q, 30); code(err) != service.CodeValidation {
 		t.Fatalf("invalid quota: %v", err)
+	}
+}
+
+func TestDeleteWorkspaceRevokesTokensFirstAndRemovesLeftovers(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	tok, err := h.svc.CreateToken(h.ctx, "admin", p.Workspace, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A labelled container of this workspace that belongs to no known app.
+	labels := map[string]string{"deploy-gateway.workspace": "alice", "deploy-gateway.app": "ghost", "deploy-gateway.managed": "true"}
+	h.docker.Add(dockerx.ContainerInfo{ID: "alice-ghost-web", Name: "alice-ghost-web", Labels: labels}, dockerx.Facts{})
+	other := map[string]string{"deploy-gateway.workspace": "bob", "deploy-gateway.app": "x", "deploy-gateway.managed": "true"}
+	h.docker.Add(dockerx.ContainerInfo{ID: "bob-x-web", Name: "bob-x-web", Labels: other}, dockerx.Facts{})
+	revokedDuringDelete := false
+	h.compose.OnDown = func(string) {
+		_, _, err := h.st.TokenByHash(h.ctx, auth.HashToken(tok))
+		revokedDuringDelete = err != nil
+	}
+	if err := h.svc.DeleteWorkspace(h.ctx, "admin", p.Workspace); err != nil {
+		t.Fatal(err)
+	}
+	if !revokedDuringDelete {
+		t.Fatal("tokens must be revoked before apps are removed")
+	}
+	if _, _, err := h.st.TokenByHash(h.ctx, auth.HashToken(tok)); err == nil {
+		t.Fatal("token still valid")
+	}
+	if _, ok := h.docker.Containers["alice-ghost-web"]; ok {
+		t.Fatal("leftover workspace container not removed")
+	}
+	if _, ok := h.docker.Containers["bob-x-web"]; !ok {
+		t.Fatal("another workspace's container was removed")
+	}
+}
+
+func TestDeleteWorkspaceIsNotCancelledByRequest(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	ctx, cancel := context.WithCancel(h.ctx)
+	h.compose.OnDown = func(string) { cancel() }
+	if err := h.svc.DeleteWorkspace(ctx, "admin", p.Workspace); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.st.GetWorkspaceByName(h.ctx, "alice"); err == nil {
+		t.Fatal("workspace row still present")
+	}
+}
+
+func TestDeployIntoDeletedWorkspaceIsNotFound(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099) // principal authenticated before the delete
+	if err := h.svc.DeleteWorkspace(h.ctx, "admin", p.Workspace); err != nil {
+		t.Fatal(err)
+	}
+	_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+	if code(err) != service.CodeNotFound {
+		t.Fatalf("expected not_found, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "alice")); !os.IsNotExist(err) {
+		t.Fatal("deploy recreated the deleted workspace folder")
+	}
+	if len(h.compose.Calls()) != 0 {
+		t.Fatalf("compose ran: %v", h.compose.Calls())
 	}
 }

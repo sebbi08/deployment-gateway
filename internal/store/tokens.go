@@ -78,6 +78,13 @@ func (s *Store) RevokeToken(ctx context.Context, id int64) error {
 	return nil
 }
 
+// RevokeWorkspaceTokens revokes every active token of a workspace in one
+// statement. Already revoked tokens keep their original revocation time.
+func (s *Store) RevokeWorkspaceTokens(ctx context.Context, wsID int64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE tokens SET revoked_at=? WHERE workspace_id=? AND revoked_at IS NULL`, s.now().Unix(), wsID)
+	return err
+}
+
 func (s *Store) ListTokens(ctx context.Context, wsID int64) ([]Token, error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT `+tokenCols+` FROM tokens WHERE workspace_id=? ORDER BY id`, wsID)
 	if err != nil {

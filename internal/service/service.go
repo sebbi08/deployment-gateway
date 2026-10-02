@@ -27,6 +27,7 @@ type Compose interface {
 type Docker interface {
 	ProjectContainers(ctx context.Context, ws, app string) ([]dockerx.ContainerInfo, error)
 	ManagedContainers(ctx context.Context) ([]dockerx.ContainerInfo, error)
+	WorkspaceContainers(ctx context.Context, ws string) ([]dockerx.ContainerInfo, error)
 	Inspect(ctx context.Context, id string) (dockerx.Facts, error)
 	Logs(ctx context.Context, id string, tail int, since string, maxBytes int) (string, error)
 	ImageLabels(ctx context.Context, ref string) (map[string]string, error)
