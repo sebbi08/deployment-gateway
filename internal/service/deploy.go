@@ -59,7 +59,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
 		return AppStatus{}, err
 	}
-	out, upErr := s.Compose.Up(ctx, file, project)
+	out, upErr := s.Compose.Up(bg, file, project)
 	// Layer 3 runs even when up failed: --wait can fail while containers exist.
 	if violations := s.runtimeCheck(bg, ws.Name, app, pl); len(violations) > 0 {
 		detail := strings.Join(violations, "; ")
@@ -77,7 +77,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		msg := "deployment failed: " + upErr.Error() + "\n" + s.sanitize(ws.Name, out) + s.failureLogs(bg, ws.Name, app) + s.prevHint(ws.Name, app)
 		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: out}
 	}
-	if err := s.Store.RecordDeploy(ctx, appRec.ID, "ok"); err != nil {
+	if err := s.Store.RecordDeploy(bg, appRec.ID, "ok"); err != nil {
 		return AppStatus{}, err
 	}
 	return s.status(ctx, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
