@@ -9,6 +9,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/moby/moby/api/pkg/stdcopy"
@@ -24,6 +25,8 @@ type ContainerInfo struct {
 	State  string
 	Status string
 	Health string
+	// Created is when the container was created (zero if unknown).
+	Created time.Time
 }
 
 type Client struct{ api *client.Client }
@@ -63,7 +66,7 @@ func (c *Client) list(ctx context.Context, f client.Filters) ([]ContainerInfo, e
 	}
 	out := make([]ContainerInfo, 0, len(res.Items))
 	for _, s := range res.Items {
-		info := ContainerInfo{ID: s.ID, Labels: s.Labels, State: string(s.State), Status: s.Status}
+		info := ContainerInfo{ID: s.ID, Labels: s.Labels, State: string(s.State), Status: s.Status, Created: time.Unix(s.Created, 0)}
 		if len(s.Names) > 0 {
 			info.Name = strings.TrimPrefix(s.Names[0], "/")
 		}

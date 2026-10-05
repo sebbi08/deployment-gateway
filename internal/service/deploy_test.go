@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/sebbi08/deployment-gateway/internal/dockerx"
 	"github.com/sebbi08/deployment-gateway/internal/service"
@@ -283,5 +284,45 @@ func TestDeployRequiresRunningAndHealthyServices(t *testing.T) {
 				t.Fatalf("last result = %q, want failed", app.LastDeployResult)
 			}
 		})
+	}
+}
+
+// ageContainers marks every existing container as created an hour ago, like
+// containers of an earlier deploy on a real daemon.
+func ageContainers(h *harness) {
+	for id, c := range h.docker.Containers {
+		c.Created = time.Now().Add(-time.Hour)
+		h.docker.Containers[id] = c
+	}
+}
+
+// up can fail before it replaces the old containers (a host port in use, no
+// free network pool). Those containers passed their own runtime check; they
+// must not be reported as a critical violation and torn down.
+func TestDeployFailedUpKeepsOldContainersWithoutFalseViolation(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	ageContainers(h)
+	h.compose.UpErr = errors.New("port is already allocated")
+	moved := strings.Replace(exampleStack, `"host": 20001`, `"host": 20002`, 1)
+	_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, moved)})
+	if code(err) != service.CodeDeployFailed {
+		t.Fatalf("want deploy_failed, got %v", err)
+	}
+	if slices.Contains(h.compose.Calls(), "down dg-alice-shop") || len(h.docker.Containers) != 2 {
+		t.Fatalf("old containers were torn down: calls=%v containers=%d", h.compose.Calls(), len(h.docker.Containers))
+	}
+}
+
+func TestDeployFailedUpStillChecksOldContainersInvariants(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	ageContainers(h)
+	h.docker.MutateFacts("alice-shop-db", func(f *dockerx.Facts) { f.Privileged = true })
+	h.compose.UpErr = errors.New("port is already allocated")
+	if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)}); code(err) != service.CodeSecurity {
+		t.Fatalf("privileged pre-existing container: want security_violation, got %v", err)
 	}
 }

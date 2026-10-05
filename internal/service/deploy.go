@@ -67,9 +67,10 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		return AppStatus{}, err
 	}
 	file := s.composeFile(ws.Name, app)
+	upStarted := time.Now()
 	out, upErr := s.Compose.Up(bg, file, project)
 	// Layer 3 runs even when up failed: --wait can fail while containers exist.
-	if violations := s.runtimeCheck(bg, ws.Name, app, pl); len(violations) > 0 {
+	if violations := s.runtimeCheck(bg, ws.Name, app, pl, upStarted); len(violations) > 0 {
 		detail := strings.Join(violations, "; ")
 		msg := "deployment rejected by runtime security check; containers were removed"
 		// Remove the containers right away: compose down waits for the global
@@ -326,7 +327,10 @@ func (s *Service) prepareDirs(ws, app string, st *stack.Stack) error {
 }
 
 // runtimeCheck inspects every container of the app (spec §10 layer 3).
-func (s *Service) runtimeCheck(ctx context.Context, ws, app string, pl *planned) []string {
+// Containers created before upStarted (a failed up may leave them) get only
+// the plan-independent checks: they were checked against their own render.
+// Docker reports creation times in whole seconds, hence the margin.
+func (s *Service) runtimeCheck(ctx context.Context, ws, app string, pl *planned, upStarted time.Time) []string {
 	containers, err := s.Docker.ProjectContainers(ctx, ws, app)
 	if err != nil {
 		return []string{"cannot list containers: " + err.Error()}
@@ -344,7 +348,8 @@ func (s *Service) runtimeCheck(ctx context.Context, ws, app string, pl *planned)
 			ports = append(ports, dockerx.PortFact{ContainerPort: cl.ContainerPort, Protocol: cl.Protocol, HostIP: pl.policy.BindIP, HostPort: cl.HostPort})
 		}
 		v = append(v, dockerx.CheckRuntime(facts, dockerx.RuntimePolicy{Workspace: ws, App: app, DataDir: pl.policy.DataDir, Ports: ports,
-			Labels: pl.out.Labels[svc], ReservedPrefixes: pl.runtimePrefixes})...)
+			Labels: pl.out.Labels[svc], ReservedPrefixes: pl.runtimePrefixes,
+			PreExisting: !c.Created.IsZero() && c.Created.Before(upStarted.Add(-time.Second))})...)
 	}
 	return v
 }

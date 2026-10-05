@@ -38,11 +38,12 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Fix: Reject templates whose keys collide after rendering with sample values.
 
   - Done: tmpl.Validate renders label keys with two sample sets (distinct names, identical names) and rejects keys that can render to the same key (case-insensitive).
-- [ ] **L8** (found while fixing H2) If `up` fails before touching containers (e.g. network pool exhausted), the runtime check compares the old containers with the new render, reports a false *critical* violation and tears the running app down — [internal/service/deploy.go:66](../../../internal/service/deploy.go#L66)
+- [x] **L8** (found while fixing H2) If `up` fails before touching containers (e.g. network pool exhausted), the runtime check compares the old containers with the new render, reports a false *critical* violation and tears the running app down — [internal/service/deploy.go:66](../../../internal/service/deploy.go#L66)
   - Fix: on up failure, only treat containers whose config hash/labels belong to the new render as violations, or check old-render containers against the previous plan.
 
 ## Medium
 
+  - Done: containers created before the current up get only the plan-independent runtime checks (RuntimePolicy.PreExisting); a failed up that leaves old containers is deploy_failed, not a critical violation with teardown.
 - [ ] **M1** (F01, confirmed) Multi-line exec-form args render to broken YAML: false critical violation or silently altered value — [internal/render/render.go:144](../../../internal/render/render.go#L144)
   - Fix: Give agent-supplied strings (command, entrypoint, healthcheck test, env values) a named string type whose MarshalYAML returns &yaml.Node{Kind: ScalarNode, Tag: "!!str", Style: yaml.DoubleQuotedStyle, Value: s}. In render, add a round-trip check: unmarshal out.YAML and compare these fields with the escaped input. On a mismatch, return validation_failed with the field path, so verify does not raise a critical. Add …
 - [x] **M2** (F04, confirmed) /mcp accepts the SDK default 4 MiB bodies; spec §7's 128 KB limit is enforced only on /api/v1 — [internal/mcpserver/mcpserver.go:107](../../../internal/mcpserver/mcpserver.go#L107)

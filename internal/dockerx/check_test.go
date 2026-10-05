@@ -130,3 +130,23 @@ func TestCheckRuntimeIgnoresComposeLabels(t *testing.T) {
 		t.Fatalf("unrendered com.example label not flagged: %v", v)
 	}
 }
+
+func TestCheckRuntimePreExistingSkipsOnlyRenderMatch(t *testing.T) {
+	f := goodFacts()
+	f.Labels["traefik.http.routers.old.rule"] = "Host(`old.example.com`)"
+	f.PortBindings = []PortFact{{ContainerPort: 80, Protocol: "tcp", HostIP: "0.0.0.0", HostPort: 20001}}
+	p := policy()
+	p.PreExisting = true
+	if v := CheckRuntime(f, p); len(v) != 0 {
+		t.Fatalf("pre-existing container with an older render flagged: %v", v)
+	}
+	f.Privileged = true
+	if v := CheckRuntime(f, p); len(v) != 1 || !strings.Contains(v[0], "privileged") {
+		t.Fatalf("plan-independent checks must still apply: %v", v)
+	}
+	p.PreExisting = false
+	f.Privileged = false
+	if v := CheckRuntime(f, p); len(v) != 2 {
+		t.Fatalf("new container must be matched against the render: %v", v)
+	}
+}

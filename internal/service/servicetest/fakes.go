@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -308,7 +309,7 @@ func Wire(c *FakeCompose, d *FakeDocker) {
 				hp, _ := strconv.Atoi(p.Published)
 				f.PortBindings = append(f.PortBindings, dockerx.PortFact{ContainerPort: p.Target, Protocol: p.Protocol, HostIP: p.HostIP, HostPort: hp})
 			}
-			d.Containers[key] = dockerx.ContainerInfo{ID: key, Name: key, Labels: labels, State: "running", Status: "Up", Health: health}
+			d.Containers[key] = dockerx.ContainerInfo{ID: key, Name: key, Labels: labels, State: "running", Status: "Up", Health: health, Created: time.Now()}
 			d.Facts[key] = f
 		}
 		return nil

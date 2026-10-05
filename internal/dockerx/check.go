@@ -62,6 +62,10 @@ type RuntimePolicy struct {
 	// are merged into container labels by Docker, so this catches labels
 	// smuggled in through the image.
 	ReservedPrefixes []string
+	// PreExisting marks a container that existed before the current up (it
+	// was checked against its own render when it was deployed): the exact
+	// label and port match against the new render is skipped for it.
+	PreExisting bool
 }
 
 // Anonymous volumes (from an image's VOLUME instruction) have random 64-hex
@@ -130,6 +134,9 @@ func CheckRuntime(f Facts, p RuntimePolicy) []string {
 	}
 	if f.Labels[names.LabelWorkspace] != p.Workspace || f.Labels[names.LabelApp] != p.App {
 		add("owner labels do not match %s/%s", p.Workspace, p.App)
+	}
+	if p.PreExisting {
+		return v
 	}
 	for _, k := range slices.Sorted(maps.Keys(f.Labels)) {
 		// Compose sets com.docker.compose.* itself; images carrying such
