@@ -132,3 +132,42 @@ func TestToolErrorMasksNonServiceErrors(t *testing.T) {
 		}
 	}
 }
+
+func rawPost(t *testing.T, url, token, body string, version string) *http.Response {
+	t.Helper()
+	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	if version != "" {
+		req.Header.Set("Mcp-Protocol-Version", version)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { resp.Body.Close() })
+	return resp
+}
+
+// The SDK accepts batches for protocol versions before 2025-06-18 and runs
+// every call concurrently, so one request could hold gigabytes of results.
+func TestBatchesRejectedForEveryVersion(t *testing.T) {
+	url, tok := setup(t)
+	batch := `[{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"whoami","arguments":{}}},
+	           {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"whoami","arguments":{}}}]`
+	for _, v := range []string{"", "2024-11-05", "2025-03-26", "2025-06-18"} {
+		if resp := rawPost(t, url, tok, "  \n"+batch, v); resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("version %q: batch got %d, want 400", v, resp.StatusCode)
+		}
+	}
+}
+
+func TestOversizeBodyRejected(t *testing.T) {
+	url, tok := setup(t)
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"validate","arguments":{"app":"shop","stack":{"services":{"web":{"image":"a:1","environment":{"X":"` +
+		strings.Repeat("x", 200<<10) + `"}}}}}}}`
+	if resp := rawPost(t, url, tok, body, "2025-06-18"); resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("200 KB body got %d, want 413", resp.StatusCode)
+	}
+}

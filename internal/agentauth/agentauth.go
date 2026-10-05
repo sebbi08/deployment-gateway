@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/netip"
 	"strings"
+	"sync"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 
@@ -25,6 +26,11 @@ type Authenticator struct {
 	Limiter        *auth.Limiter
 	TrustedProxies []netip.Prefix
 	Logger         *slog.Logger // nil: slog.Default()
+	// MaxInFlight caps concurrent calls per token (0: unlimited).
+	MaxInFlight int
+
+	mu       sync.Mutex
+	inFlight map[int64]int
 }
 
 type ctxKey struct{}
@@ -84,6 +90,11 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			fmt.Fprintln(w, `{"code":"internal","message":"internal error"}`)
 			return
 		}
+		if !a.acquire(p.TokenID) {
+			writeTooMany(w)
+			return
+		}
+		defer a.release(p.TokenID)
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, p)))
 	})
 }
@@ -106,4 +117,71 @@ func (a *Authenticator) MCPVerifier() sdkauth.TokenVerifier {
 		}
 		return &sdkauth.TokenInfo{UserID: fmt.Sprintf("token:%d", p.TokenID), Extra: map[string]any{"principal": p}}, nil
 	}
+}
+
+// InFlight reports the number of calls currently holding a slot.
+func (a *Authenticator) InFlight() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	n := 0
+	for _, c := range a.inFlight {
+		n += c
+	}
+	return n
+}
+
+// acquire takes one of the token's MaxInFlight slots.
+func (a *Authenticator) acquire(tokenID int64) bool {
+	if a.MaxInFlight <= 0 {
+		return true
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.inFlight == nil {
+		a.inFlight = map[int64]int{}
+	}
+	if a.inFlight[tokenID] >= a.MaxInFlight {
+		return false
+	}
+	a.inFlight[tokenID]++
+	return true
+}
+
+func (a *Authenticator) release(tokenID int64) {
+	if a.MaxInFlight <= 0 {
+		return
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.inFlight[tokenID]--; a.inFlight[tokenID] <= 0 {
+		delete(a.inFlight, tokenID)
+	}
+}
+
+func writeTooMany(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusTooManyRequests)
+	fmt.Fprintln(w, `{"code":"too_many_requests","message":"too many concurrent calls for this token; retry later"}`)
+}
+
+// LimitMCP caps concurrent MCP requests per token. It must run behind the
+// SDK's bearer-token middleware, which puts the verified token in the context.
+func (a *Authenticator) LimitMCP(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		info := sdkauth.TokenInfoFromContext(r.Context())
+		p, ok := service.Principal{}, false
+		if info != nil {
+			p, ok = info.Extra["principal"].(service.Principal)
+		}
+		if !ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if !a.acquire(p.TokenID) {
+			writeTooMany(w)
+			return
+		}
+		defer a.release(p.TokenID)
+		next.ServeHTTP(w, r)
+	})
 }

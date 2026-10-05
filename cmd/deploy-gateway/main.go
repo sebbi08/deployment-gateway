@@ -177,8 +177,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	warnUntrustedProxies(cfg, logger)
-	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute),
-		TrustedProxies: cfg.TrustedProxies, Logger: logger}
+	authn := newAuthenticator(st, cfg, logger)
 	adminSrv := admin.New(admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
 		TrustedProxies: cfg.AdminTrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
 	servers := []*http.Server{
@@ -214,6 +213,15 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		srv.Shutdown(shutdownCtx)
 	}
 	return nil
+}
+
+// maxInFlightPerToken caps concurrent agent calls per token; a deploy holds
+// its slot until it finishes.
+const maxInFlightPerToken = 8
+
+func newAuthenticator(st *store.Store, cfg config.Config, logger *slog.Logger) *agentauth.Authenticator {
+	return &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute),
+		TrustedProxies: cfg.TrustedProxies, Logger: logger, MaxInFlight: maxInFlightPerToken}
 }
 
 // warnUntrustedProxies flags a missing TRUSTED_PROXIES: behind a reverse

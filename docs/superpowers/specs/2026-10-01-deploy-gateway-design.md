@@ -248,7 +248,7 @@ Output is marshalled with `gopkg.in/yaml.v3` from typed structs (never string co
 
 ## 12. Agent tools / API
 
-Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/output.
+Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/output. Request bodies are limited to 128 KB on both endpoints (plus 4 KB for the JSON-RPC envelope on `/mcp`); JSON-RPC batches are rejected with 400 for every protocol version, because the SDK would run all calls of a batch concurrently.
 
 | Tool | Input | Output |
 |---|---|---|
@@ -264,7 +264,7 @@ Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/outp
 
 Ownership on every call: workspace comes only from the token (DB lookup); the app must exist in the workspace's DB records and folder; affected containers are found by Docker label filter `deploy-gateway.workspace=<ws>,deploy-gateway.app=<app>`. A request for an app in another workspace returns `not_found` (indistinguishable from nonexistent).
 
-Error codes: `unauthorized`, `validation_failed`, `quota_exceeded`, `port_taken`, `not_found`, `conflict` (app locked), `deploy_failed`, `security_violation`, `internal`. Docker/compose output to agents is sanitized (truncated, no host paths outside the workspace); the full output goes to the audit log.
+Error codes: `unauthorized`, `validation_failed`, `quota_exceeded`, `port_taken`, `not_found`, `conflict` (app locked), `deploy_failed`, `security_violation`, `too_many_requests` (HTTP 429: more than 8 concurrent calls with one token), `internal`. Docker/compose output to agents is sanitized (truncated, no host paths outside the workspace); the full output goes to the audit log.
 
 ## 13. Authentication
 

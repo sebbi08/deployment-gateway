@@ -19,6 +19,8 @@ services:
     cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
     security_opt: ["no-new-privileges:true"]
     read_only: true
+    # Bounds the gateway's own memory (it buffers tool results and runs docker-compose children).
+    mem_limit: ${GATEWAY_MEM_LIMIT:-512m}
     tmpfs: [/tmp]
     labels:
       traefik.enable: true

@@ -2,8 +2,11 @@
 package mcpserver
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
@@ -11,6 +14,7 @@ import (
 
 	"github.com/sebbi08/deployment-gateway/internal/agentauth"
 	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
 )
 
 const instructions = `deploy-gateway deploys containerized apps into your own workspace on a shared server.
@@ -101,9 +105,43 @@ func principal(req *mcp.CallToolRequest) (service.Principal, error) {
 	return p, nil
 }
 
-// Handler serves stateless streamable HTTP behind bearer-token auth.
+// maxBody bounds an MCP request: the stack limit plus room for the JSON-RPC
+// envelope (spec §7).
+const maxBody = stack.MaxRequestBytes + 4<<10
+
+// Handler serves stateless streamable HTTP behind bearer-token auth, with a
+// per-token cap on concurrent calls.
 func Handler(srv *mcp.Server, a *agentauth.Authenticator) http.Handler {
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true})
-	return sdkauth.RequireBearerToken(a.MCPVerifier(), &sdkauth.RequireBearerTokenOptions{AllowMissingExpiration: true})(h)
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: maxBody})
+	return sdkauth.RequireBearerToken(a.MCPVerifier(), &sdkauth.RequireBearerTokenOptions{AllowMissingExpiration: true})(
+		a.LimitMCP(rejectBatches(h)))
+}
+
+// rejectBatches refuses JSON-RPC batches for every protocol version. The SDK
+// accepts them before 2025-06-18 and runs all calls of a batch concurrently,
+// holding every result in memory until the last one finishes.
+func rejectBatches(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			next.ServeHTTP(w, r)
+			return
+		}
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
+		if err != nil {
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				http.Error(w, fmt.Sprintf("request body exceeds %d bytes", maxBody), http.StatusRequestEntityTooLarge)
+				return
+			}
+			http.Error(w, "cannot read request body", http.StatusBadRequest)
+			return
+		}
+		if trimmed := bytes.TrimLeft(body, " \t\r\n"); len(trimmed) > 0 && trimmed[0] == '[' {
+			http.Error(w, "JSON-RPC batches are not supported", http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		next.ServeHTTP(w, r)
+	})
 }

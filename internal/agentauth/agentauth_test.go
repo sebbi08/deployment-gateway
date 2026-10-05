@@ -126,3 +126,77 @@ func TestMCPVerifier(t *testing.T) {
 		t.Fatalf("bad token: %v", err)
 	}
 }
+
+func TestMiddlewareCapsConcurrentCallsPerToken(t *testing.T) {
+	a, tok := setup(t)
+	a.MaxInFlight = 2
+	release := make(chan struct{})
+	h := a.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release }))
+	r1 := make(chan int, 2)
+	for range 2 {
+		go func() {
+			r := httptest.NewRequest("POST", "/x", nil)
+			r.Header.Set("Authorization", "Bearer "+tok)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			r1 <- w.Code
+		}()
+	}
+	waitInFlight(t, a, 2)
+	r := httptest.NewRequest("POST", "/x", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), `"code":"too_many_requests"`) {
+		t.Fatalf("third concurrent call: %d %q, want 429 too_many_requests", w.Code, w.Body.String())
+	}
+	close(release)
+	if c1, c2 := <-r1, <-r1; c1 != 200 || c2 != 200 {
+		t.Fatalf("blocked calls finished with %d, %d", c1, c2)
+	}
+	w = httptest.NewRecorder()
+	h2 := a.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	h2.ServeHTTP(w, r.Clone(r.Context()))
+	if w.Code != 200 {
+		t.Fatalf("after release the slot must be free again, got %d", w.Code)
+	}
+}
+
+func TestLimitMCPCapsConcurrentCallsPerToken(t *testing.T) {
+	a, tok := setup(t)
+	a.MaxInFlight = 1
+	release := make(chan struct{})
+	h := sdkauth.RequireBearerToken(a.MCPVerifier(), &sdkauth.RequireBearerTokenOptions{AllowMissingExpiration: true})(
+		a.LimitMCP(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-release })))
+	first := make(chan int, 1)
+	go func() {
+		r := httptest.NewRequest("POST", "/mcp", nil)
+		r.Header.Set("Authorization", "Bearer "+tok)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		first <- w.Code
+	}()
+	waitInFlight(t, a, 1)
+	r := httptest.NewRequest("POST", "/mcp", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("second concurrent MCP call got %d, want 429", w.Code)
+	}
+	close(release)
+	if c := <-first; c != 200 {
+		t.Fatalf("first call finished with %d", c)
+	}
+}
+
+func waitInFlight(t *testing.T, a *Authenticator, n int) {
+	t.Helper()
+	for range 200 {
+		if a.InFlight() == n {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("in-flight calls never reached %d (now %d)", n, a.InFlight())
+}
