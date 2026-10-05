@@ -85,6 +85,13 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		_ = s.Store.RecordDeploy(bg, appRec.ID, CodeSecurity)
 		return AppStatus{}, &Error{Code: CodeSecurity, Message: msg, detail: detail + " | " + downOut, critical: true}
 	}
+	if upErr == nil {
+		// Do not trust compose's exit code alone: --wait can return 0 while a
+		// service is still starting, unhealthy or restarting.
+		if problems := s.unhealthyServices(bg, ws.Name, app, pl); len(problems) > 0 {
+			upErr = errors.New("services not running and healthy after up: " + strings.Join(problems, "; "))
+		}
+	}
 	if upErr != nil {
 		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
 		// Containers with the previous limits may still run until a deploy
@@ -99,6 +106,35 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		return AppStatus{}, err
 	}
 	return s.status(ctx, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
+}
+
+// unhealthyServices lists planned services without a running container, or
+// whose health is not "healthy" (when the stack defines a healthcheck) or is
+// "starting"/"unhealthy" (a healthcheck from the image).
+func (s *Service) unhealthyServices(ctx context.Context, ws, app string, pl *planned) []string {
+	containers, err := s.Docker.ProjectContainers(ctx, ws, app)
+	if err != nil {
+		return []string{"cannot list containers: " + err.Error()}
+	}
+	bySvc := map[string]dockerx.ContainerInfo{}
+	for _, c := range containers {
+		bySvc[c.Labels[names.LabelService]] = c
+	}
+	var problems []string
+	for _, svc := range stack.ServiceNames(pl.stack) {
+		c, ok := bySvc[svc]
+		switch {
+		case !ok:
+			problems = append(problems, svc+": no container")
+		case c.State != "running":
+			problems = append(problems, fmt.Sprintf("%s: state %s", svc, c.State))
+		case c.Health == "starting" || c.Health == "unhealthy":
+			problems = append(problems, fmt.Sprintf("%s: health %s", svc, c.Health))
+		case pl.stack.Services[svc].Healthcheck != nil && c.Health != "healthy":
+			problems = append(problems, fmt.Sprintf("%s: health %q, want healthy", svc, c.Health))
+		}
+	}
+	return problems
 }
 
 // removeAppContainers force-removes every container of the app through the

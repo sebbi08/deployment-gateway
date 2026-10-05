@@ -251,3 +251,37 @@ func TestDeployRuntimeViolationRemovesContainersBeforeComposeDown(t *testing.T) 
 		t.Fatalf("%d containers still existed when compose down ran", remaining)
 	}
 }
+
+// compose up --wait can exit 0 although a service is not healthy (seen with
+// compose v5.2.0 at the wait timeout, and for restarting containers without
+// a healthcheck); the deploy must not be recorded as ok then.
+func TestDeployRequiresRunningAndHealthyServices(t *testing.T) {
+	cases := map[string]func(h *harness){
+		"health still starting": func(h *harness) {
+			c := h.docker.Containers["alice-shop-web"]
+			c.Health = "starting"
+			h.docker.Containers["alice-shop-web"] = c
+		},
+		"crash looping without healthcheck": func(h *harness) {
+			c := h.docker.Containers["alice-shop-db"]
+			c.State = "restarting"
+			h.docker.Containers["alice-shop-db"] = c
+		},
+		"service without container": func(h *harness) { delete(h.docker.Containers, "alice-shop-db") },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			p := h.workspace("alice", 20000, 20099)
+			h.compose.AfterUp = func() { mutate(h) }
+			_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+			if code(err) != service.CodeDeployFailed {
+				t.Fatalf("want deploy_failed, got %v", err)
+			}
+			app, _ := h.st.GetApp(h.ctx, p.Workspace.ID, "shop")
+			if app.LastDeployResult != "failed" {
+				t.Fatalf("last result = %q, want failed", app.LastDeployResult)
+			}
+		})
+	}
+}
