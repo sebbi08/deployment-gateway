@@ -101,10 +101,38 @@ func Validate(t Template, others []Template) error {
 			add("label " + strconv.Quote(k) + " uses {{host}} but the template has no host_pattern")
 		}
 	}
+	checkKeyCollisions(t, add)
 	if len(errs) > 0 {
 		return errs
 	}
 	return nil
+}
+
+// checkKeyCollisions rejects label keys that can render to the same key
+// (compared case-insensitively, as Traefik reads them): RenderLabels would
+// then keep a random one of the values. Two sample sets are used: distinct
+// names, and identical names (an app and its service may share a name).
+func checkKeyCollisions(t Template, add func(string)) {
+	samples := []Vars{
+		{Workspace: "wsone", App: "appone", Service: "svcone", Port: 8080},
+		{Workspace: "x", App: "x", Service: "x", Port: 8080},
+	}
+	reported := map[string]bool{}
+	for _, v := range samples {
+		r := t.replacer(v)
+		seen := map[string]string{}
+		for _, k := range slices.Sorted(maps.Keys(t.Labels)) {
+			rk := strings.ToLower(r.Replace(k))
+			if first, ok := seen[rk]; ok {
+				if msg := "label keys " + strconv.Quote(first) + " and " + strconv.Quote(k) + " can render to the same label key"; !reported[msg] {
+					reported[msg] = true
+					add(msg)
+				}
+				continue
+			}
+			seen[rk] = k
+		}
+	}
 }
 
 func validateHost(t Template, add func(string)) {
@@ -181,9 +209,8 @@ func (t Template) Host(v Vars) string {
 	return strings.NewReplacer("{{workspace}}", v.Workspace, "{{app}}", v.App, "{{service}}", v.Service).Replace(t.HostPattern)
 }
 
-// RenderLabels substitutes placeholders in label keys and values.
-func (t Template) RenderLabels(v Vars) map[string]string {
-	r := strings.NewReplacer(
+func (t Template) replacer(v Vars) *strings.Replacer {
+	return strings.NewReplacer(
 		"{{workspace}}", v.Workspace,
 		"{{app}}", v.App,
 		"{{service}}", v.Service,
@@ -191,6 +218,11 @@ func (t Template) RenderLabels(v Vars) map[string]string {
 		"{{host}}", t.Host(v),
 		"{{port}}", strconv.Itoa(v.Port),
 	)
+}
+
+// RenderLabels substitutes placeholders in label keys and values.
+func (t Template) RenderLabels(v Vars) map[string]string {
+	r := t.replacer(v)
 	out := make(map[string]string, len(t.Labels))
 	for k, val := range t.Labels {
 		out[r.Replace(k)] = r.Replace(val)

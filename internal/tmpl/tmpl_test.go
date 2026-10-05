@@ -55,6 +55,14 @@ func TestValidateRejects(t *testing.T) {
 		{"malformed placeholder", func(t *Template) { t.Labels["x"] = "{{app" }, "malformed"},
 		{"newline in value", func(t *Template) { t.Labels["x"] = "a\nb" }, "newline"},
 		{"host without pattern", func(t *Template) { t.HostPattern = "" }, "{{host}}"},
+		{"keys collide after rendering", func(t *Template) {
+			t.Labels["traefik.http.routers.{{workspace}}-{{app}}-{{service}}.rule"] = "Host(`x`)"
+		}, "render to the same label"},
+		{"keys collide when app equals service", func(t *Template) {
+			t.Labels["x.{{app}}"] = "1"
+			t.Labels["x.{{service}}"] = "2"
+		}, "render to the same label"},
+		{"keys differ only in case", func(t *Template) { t.Labels["Traefik.enable"] = "false" }, "render to the same label"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

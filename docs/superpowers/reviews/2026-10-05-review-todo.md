@@ -34,9 +34,10 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 - [x] **L6** compose v5.2.0 'up --wait' sometimes exits 0 when the wait timeout hits while health is 'starting' (3/10 runs) → deploy recorded ok — [internal/service/deploy.go:80](../../../internal/service/deploy.go#L80)
   - Fix: After up, check every container is running and healthy (or has no healthcheck) before recording ok; verify on v5.5.1.
   - Done: after up, every planned service needs a running container (healthy if it has a healthcheck; image healthchecks must not be starting/unhealthy), otherwise deploy_failed. Spec §11 updated; integration test passes on Docker 29.6.1.
-- [ ] **L7** Template label keys that render to the same key pick a random value (Go map order) — [internal/tmpl/tmpl.go:195](../../../internal/tmpl/tmpl.go#L195)
+- [x] **L7** Template label keys that render to the same key pick a random value (Go map order) — [internal/tmpl/tmpl.go:195](../../../internal/tmpl/tmpl.go#L195)
   - Fix: Reject templates whose keys collide after rendering with sample values.
 
+  - Done: tmpl.Validate renders label keys with two sample sets (distinct names, identical names) and rejects keys that can render to the same key (case-insensitive).
 - [ ] **L8** (found while fixing H2) If `up` fails before touching containers (e.g. network pool exhausted), the runtime check compares the old containers with the new render, reports a false *critical* violation and tears the running app down — [internal/service/deploy.go:66](../../../internal/service/deploy.go#L66)
   - Fix: on up failure, only treat containers whose config hash/labels belong to the new render as violations, or check old-render containers against the previous plan.
 
