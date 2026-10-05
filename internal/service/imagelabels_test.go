@@ -10,6 +10,7 @@ import (
 
 	"github.com/sebbi08/deployment-gateway/internal/dockerx"
 	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/store"
 	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
@@ -53,9 +54,8 @@ func TestDeployRejectsReservedImageLabels(t *testing.T) {
 			if len(h.docker.Containers) != 0 {
 				t.Fatal("containers were created")
 			}
-			app, _ := h.st.GetApp(h.ctx, p.Workspace.ID, "shop")
-			if app.LastDeployResult != "failed" {
-				t.Fatalf("deploy result = %q, want failed", app.LastDeployResult)
+			if _, err := h.st.GetApp(h.ctx, p.Workspace.ID, "shop"); !errors.Is(err, store.ErrNotFound) {
+				t.Fatalf("rejected first deploy must leave no app record: %v", err)
 			}
 		})
 	}
@@ -108,9 +108,8 @@ func TestDeployPullFailure(t *testing.T) {
 	if calls := h.compose.Calls(); !slices.Equal(calls, []string{"pull dg-alice-shop"}) {
 		t.Fatalf("up must not run after failed pull: %v", calls)
 	}
-	app, _ := h.st.GetApp(h.ctx, p.Workspace.ID, "shop")
-	if app.LastDeployResult != "failed" {
-		t.Fatalf("deploy result = %q, want failed", app.LastDeployResult)
+	if _, err := h.st.GetApp(h.ctx, p.Workspace.ID, "shop"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("failed first pull must leave no app record: %v", err)
 	}
 }
 

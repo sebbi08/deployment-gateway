@@ -192,6 +192,13 @@ func (s *Store) RecordDeploy(ctx context.Context, appID int64, result string) er
 	return err
 }
 
+// RaiseReservation sets the app's memory and CPU reservation to at least the
+// given values (used while containers of a previous stack may still run).
+func (s *Store) RaiseReservation(ctx context.Context, appID int64, mem int64, cpus float64) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE apps SET memory_bytes=MAX(memory_bytes, ?), cpus=MAX(cpus, ?) WHERE id=?`, mem, cpus, appID)
+	return err
+}
+
 func (s *Store) DeleteApp(ctx context.Context, appID int64) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM apps WHERE id=?`, appID)
 	return err

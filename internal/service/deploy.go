@@ -42,23 +42,31 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	}
 	defer unlock()
 
-	appRec, pl, err := s.prepare(ctx, ws, app, &in.Stack)
+	// Pull and the image-label check run before anything is committed: while
+	// they can still fail, the old containers keep running and stay charged.
+	staged, err := s.stage(ctx, ws, app, &in.Stack)
 	if err != nil {
 		return AppStatus{}, err
 	}
-	file, project := s.composeFile(ws.Name, app), names.Project(ws.Name, app)
+	next, project := s.nextFile(ws.Name, app), names.Project(ws.Name, app)
 	// Pull, up, teardown and status bookkeeping must survive client
 	// disconnects; the runner still enforces its own timeout.
 	bg := context.WithoutCancel(ctx)
-	if out, err := s.Compose.Pull(bg, file, project); err != nil {
-		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
-		msg := "pulling images failed: " + s.sanitize(ws.Name, err.Error()) + "\n" + s.sanitize(ws.Name, out) + s.prevHint(ws.Name, app)
+	if out, err := s.Compose.Pull(bg, next, project); err != nil {
+		os.Remove(next)
+		msg := "pulling images failed: " + s.sanitize(ws.Name, err.Error()) + "\n" + s.sanitize(ws.Name, out) +
+			"\nNothing was changed; the running deployment is untouched."
 		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: out}
 	}
-	if err := s.checkImageLabels(bg, pl); err != nil {
-		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
+	if err := s.checkImageLabels(bg, staged); err != nil {
+		os.Remove(next)
 		return AppStatus{}, err
 	}
+	appRec, pl, prev, err := s.prepare(bg, ws, app, &in.Stack)
+	if err != nil {
+		return AppStatus{}, err
+	}
+	file := s.composeFile(ws.Name, app)
 	out, upErr := s.Compose.Up(bg, file, project)
 	// Layer 3 runs even when up failed: --wait can fail while containers exist.
 	if violations := s.runtimeCheck(bg, ws.Name, app, pl); len(violations) > 0 {
@@ -74,6 +82,11 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	}
 	if upErr != nil {
 		_ = s.Store.RecordDeploy(bg, appRec.ID, "failed")
+		// Containers with the previous limits may still run until a deploy
+		// succeeds, so keep charging the larger reservation.
+		if prev != nil {
+			_ = s.Store.RaiseReservation(bg, appRec.ID, prev.MemoryBytes, prev.CPUs)
+		}
 		msg := "deployment failed: " + upErr.Error() + "\n" + s.sanitize(ws.Name, out) + s.failureLogs(bg, ws.Name, app) + s.prevHint(ws.Name, app)
 		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: out}
 	}
@@ -120,69 +133,106 @@ func (s *Service) checkImageLabels(ctx context.Context, pl *planned) error {
 	return nil
 }
 
-// prepare runs under the workspace mutex so concurrent deploys of different
-// apps cannot both pass the quota check. It writes files and DB state.
-func (s *Service) prepare(ctx context.Context, ws store.Workspace, app string, st *stack.Stack) (store.App, *planned, error) {
+// stage plans the deploy and writes docker-compose.next.yml without changing
+// any DB state, so pull and the image-label check can run first.
+func (s *Service) stage(ctx context.Context, ws store.Workspace, app string, st *stack.Stack) (*planned, error) {
 	mu := s.wsMutex(ws.Name)
 	mu.Lock()
 	defer mu.Unlock()
-	// DeleteWorkspace holds the same mutex; the principal may have been
-	// authenticated before the workspace was deleted.
-	if _, err := s.Store.GetWorkspace(ctx, ws.ID); errors.Is(err, store.ErrNotFound) {
-		return store.App{}, nil, notFoundError("workspace")
-	} else if err != nil {
-		return store.App{}, nil, err
-	}
-	pl, err := s.plan(ctx, ws, app, st)
+	pl, err := s.planLocked(ctx, ws, app, st)
 	if err != nil {
-		return store.App{}, nil, err
+		return nil, err
 	}
-	prev, err := s.Store.GetApp(ctx, ws.ID, app)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return store.App{}, nil, err
-	}
-	lastOK := err == nil && prev.LastDeployResult == "ok"
 	if err := s.prepareDirs(ws.Name, app, st); err != nil {
-		return store.App{}, nil, err
+		return nil, err
 	}
-	next := filepath.Join(s.appDir(ws.Name, app), "docker-compose.next.yml")
+	return pl, s.writeNext(ws.Name, app, pl)
+}
+
+// planLocked plans under the workspace mutex. DeleteWorkspace holds the same
+// mutex; the principal may have been authenticated before the workspace was
+// deleted.
+func (s *Service) planLocked(ctx context.Context, ws store.Workspace, app string, st *stack.Stack) (*planned, error) {
+	if _, err := s.Store.GetWorkspace(ctx, ws.ID); errors.Is(err, store.ErrNotFound) {
+		return nil, notFoundError("workspace")
+	} else if err != nil {
+		return nil, err
+	}
+	return s.plan(ctx, ws, app, st)
+}
+
+func (s *Service) nextFile(ws, app string) string {
+	return filepath.Join(s.appDir(ws, app), "docker-compose.next.yml")
+}
+
+func (s *Service) writeNext(ws, app string, pl *planned) error {
+	next := s.nextFile(ws, app)
 	if err := os.WriteFile(next, pl.out.YAML, 0o640); err != nil {
-		return store.App{}, nil, err
+		return err
 	}
 	if err := s.own(next); err != nil {
 		os.Remove(next)
-		return store.App{}, nil, err
+		return err
 	}
+	return nil
+}
+
+// prepare runs under the workspace mutex so concurrent deploys of different
+// apps cannot both pass the quota check. It re-plans (pull may have taken a
+// while), commits the reservation and rotates the compose files. It returns
+// the app's previous record, or nil for a new app.
+func (s *Service) prepare(ctx context.Context, ws store.Workspace, app string, st *stack.Stack) (store.App, *planned, *store.App, error) {
+	mu := s.wsMutex(ws.Name)
+	mu.Lock()
+	defer mu.Unlock()
+	pl, err := s.planLocked(ctx, ws, app, st)
+	if err != nil {
+		return store.App{}, nil, nil, err
+	}
+	prev, err := s.Store.GetApp(ctx, ws.ID, app)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.App{}, nil, nil, err
+	}
+	var prevApp *store.App
+	if err == nil {
+		prevApp = &prev
+	}
+	lastOK := prevApp != nil && prev.LastDeployResult == "ok"
+	// Rewrite next: the re-plan may differ if templates changed during pull.
+	if err := s.writeNext(ws.Name, app, pl); err != nil {
+		return store.App{}, nil, nil, err
+	}
+	next := s.nextFile(ws.Name, app)
 	appRec, err := s.Store.SaveDeployment(ctx, ws.ID, app, pl.memBytes, pl.cpus, pl.out.Hosts, pl.claims)
 	if err != nil {
 		os.Remove(next)
 		var taken *store.PortTakenError
 		if errors.As(err, &taken) {
-			return store.App{}, nil, &Error{Code: CodePortTaken, Message: taken.Error()}
+			return store.App{}, nil, nil, &Error{Code: CodePortTaken, Message: taken.Error()}
 		}
-		return store.App{}, nil, err
+		return store.App{}, nil, nil, err
 	}
 	// Persist "pending" so a lost "failed" update can never make the next
 	// deploy rotate a never-successful render into prev.
 	if err := s.Store.RecordDeploy(context.WithoutCancel(ctx), appRec.ID, "pending"); err != nil {
-		return store.App{}, nil, err
+		return store.App{}, nil, nil, err
 	}
 	cur := s.composeFile(ws.Name, app)
 	if lastOK {
 		if _, err := os.Stat(cur); err == nil {
 			if err := os.Rename(cur, s.prevFile(ws.Name, app)); err != nil {
-				return store.App{}, nil, err
+				return store.App{}, nil, nil, err
 			}
 			// prev may predate FILE_OWNER.
 			if err := s.own(s.prevFile(ws.Name, app)); err != nil {
-				return store.App{}, nil, err
+				return store.App{}, nil, nil, err
 			}
 		}
 	}
 	if err := os.Rename(next, cur); err != nil {
-		return store.App{}, nil, err
+		return store.App{}, nil, nil, err
 	}
-	return appRec, pl, nil
+	return appRec, pl, prevApp, nil
 }
 
 func (s *Service) prepareDirs(ws, app string, st *stack.Stack) error {
