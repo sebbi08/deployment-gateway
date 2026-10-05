@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -199,4 +200,57 @@ func waitInFlight(t *testing.T, a *Authenticator, n int) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("in-flight calls never reached %d (now %d)", n, a.InFlight())
+}
+
+// A request whose headers arrived before the token was revoked must not run
+// once its body completes: the token is checked only after the body is read.
+func TestTokenCheckedAfterBodyIsRead(t *testing.T) {
+	a, tok := setup(t)
+	ran := false
+	h := ReadBodyFirst(a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { ran = true })))
+	srv := httptest.NewServer(h)
+	defer srv.Close()
+
+	pr, pw := io.Pipe()
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/deploy", pr)
+	req.Header.Set("Authorization", "Bearer "+tok)
+	done := make(chan *http.Response, 1)
+	go func() {
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Error(err)
+			done <- nil
+			return
+		}
+		done <- resp
+	}()
+	pw.Write([]byte(`{"app":`)) // headers and part of the body are on the wire
+	time.Sleep(100 * time.Millisecond)
+	tk, _, err := a.Store.TokenByHash(context.Background(), auth.HashToken(tok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.RevokeToken(context.Background(), tk.ID); err != nil {
+		t.Fatal(err)
+	}
+	pw.Write([]byte(`"shop"}`))
+	pw.Close()
+	resp := <-done
+	if resp == nil {
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized || ran {
+		t.Fatalf("revoked token: status %d, handler ran=%v; want 401 and no run", resp.StatusCode, ran)
+	}
+}
+
+func TestReadBodyFirstRejectsOversizeBody(t *testing.T) {
+	h := ReadBodyFirst(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("handler must not run") }))
+	r := httptest.NewRequest("POST", "/api/v1/validate", strings.NewReader(strings.Repeat("x", MaxBodyBytes+1)))
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("got %d, want 413", w.Code)
+	}
 }

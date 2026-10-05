@@ -112,8 +112,8 @@ type pinger interface{ Ping(context.Context) error }
 
 func agentHandler(svc *service.Service, authn *agentauth.Authenticator, p pinger) http.Handler {
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpserver.Handler(mcpserver.New(svc, version), authn))
-	mux.Handle("/api/v1/", (&api.Handler{Svc: svc, Auth: authn}).Routes())
+	mux.Handle("/mcp", agentauth.ReadBodyFirst(mcpserver.Handler(mcpserver.New(svc, version), authn)))
+	mux.Handle("/api/v1/", agentauth.ReadBodyFirst((&api.Handler{Svc: svc, Auth: authn}).Routes()))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := p.Ping(r.Context()); err != nil {
 			http.Error(w, "degraded: docker unreachable", http.StatusServiceUnavailable)

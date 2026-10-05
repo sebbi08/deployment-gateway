@@ -3,19 +3,23 @@
 package agentauth
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/netip"
 	"strings"
 	"sync"
+	"time"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 
 	"github.com/sebbi08/deployment-gateway/internal/auth"
 	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
 	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
@@ -182,6 +186,43 @@ func (a *Authenticator) LimitMCP(next http.Handler) http.Handler {
 			return
 		}
 		defer a.release(p.TokenID)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// MaxBodyBytes bounds an agent request: the stack limit plus room for the
+// request envelope (spec §7).
+const MaxBodyBytes = stack.MaxRequestBytes + 4<<10
+
+// bodyReadTimeout bounds how long a client may take to send its body.
+const bodyReadTimeout = 30 * time.Second
+
+// ReadBodyFirst buffers the whole (bounded) request body before calling next,
+// so the token is checked only once the request is complete: a client that
+// holds back its body cannot use a token after it was revoked.
+func ReadBodyFirst(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Body == nil || r.Body == http.NoBody {
+			next.ServeHTTP(w, r)
+			return
+		}
+		rc := http.NewResponseController(w)
+		_ = rc.SetReadDeadline(time.Now().Add(bodyReadTimeout)) // unsupported by test recorders
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, MaxBodyBytes))
+		_ = rc.SetReadDeadline(time.Time{})
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			var tooLarge *http.MaxBytesError
+			if errors.As(err, &tooLarge) {
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				fmt.Fprintf(w, `{"code":"validation_failed","message":"request body exceeds %d bytes"}`+"\n", MaxBodyBytes)
+				return
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintln(w, `{"code":"validation_failed","message":"cannot read request body"}`)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
 		next.ServeHTTP(w, r)
 	})
 }

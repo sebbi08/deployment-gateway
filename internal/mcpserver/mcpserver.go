@@ -14,7 +14,6 @@ import (
 
 	"github.com/sebbi08/deployment-gateway/internal/agentauth"
 	"github.com/sebbi08/deployment-gateway/internal/service"
-	"github.com/sebbi08/deployment-gateway/internal/stack"
 )
 
 const instructions = `deploy-gateway deploys containerized apps into your own workspace on a shared server.
@@ -105,9 +104,7 @@ func principal(req *mcp.CallToolRequest) (service.Principal, error) {
 	return p, nil
 }
 
-// maxBody bounds an MCP request: the stack limit plus room for the JSON-RPC
-// envelope (spec §7).
-const maxBody = stack.MaxRequestBytes + 4<<10
+const maxBody = agentauth.MaxBodyBytes
 
 // Handler serves stateless streamable HTTP behind bearer-token auth, with a
 // per-token cap on concurrent calls.

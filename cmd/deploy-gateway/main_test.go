@@ -124,3 +124,22 @@ func TestNewAuthenticatorWiring(t *testing.T) {
 		t.Fatalf("authenticator not wired: %+v", a)
 	}
 }
+
+// Both agent endpoints read the whole body before checking the token.
+func TestAgentHandlerReadsBodyBeforeAuth(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := service.New(st, &servicetest.FakeCompose{}, servicetest.NewFakeDocker(), t.TempDir())
+	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, time.Hour)}
+	h := agentHandler(svc, authn, fakePinger{})
+	for _, path := range []string{"/api/v1/whoami", "/mcp"} {
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest("POST", path, strings.NewReader(strings.Repeat("x", agentauth.MaxBodyBytes+1))))
+		if w.Code != http.StatusRequestEntityTooLarge {
+			t.Errorf("%s: oversize body without token got %d, want 413 (body read before auth)", path, w.Code)
+		}
+	}
+}

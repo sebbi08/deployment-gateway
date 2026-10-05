@@ -248,7 +248,7 @@ Output is marshalled with `gopkg.in/yaml.v3` from typed structs (never string co
 
 ## 12. Agent tools / API
 
-Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/output. Request bodies are limited to 128 KB on both endpoints (plus 4 KB for the JSON-RPC envelope on `/mcp`); JSON-RPC batches are rejected with 400 for every protocol version, because the SDK would run all calls of a batch concurrently.
+Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/output. Request bodies are limited to 128 KB on both endpoints (plus 4 KB for the JSON-RPC envelope on `/mcp`); JSON-RPC batches are rejected with 400 for every protocol version, because the SDK would run all calls of a batch concurrently. The body is read completely (within 30 s) before the token is checked, so a revoked token cannot finish a request whose body it held back.
 
 | Tool | Input | Output |
 |---|---|---|

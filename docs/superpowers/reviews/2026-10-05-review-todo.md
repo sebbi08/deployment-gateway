@@ -28,8 +28,9 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 - [x] **L4** Teardown after a runtime security violation queues behind the global compose slot, so rejected containers keep running until the queue drains — [internal/service/deploy.go:67](../../../internal/service/deploy.go#L67)
   - Fix: Give security teardowns priority (separate slot / bypass the semaphore) or stop containers via the Docker API immediately.
   - Done: on a runtime violation the app's containers are force-removed via the Docker API first; compose down then cleans up the rest.
-- [ ] **L5** Revoked tokens still complete slow-body requests authenticated before revocation (no ReadTimeout) — [cmd/deploy-gateway/main.go:183](../../../cmd/deploy-gateway/main.go#L183)
+- [x] **L5** Revoked tokens still complete slow-body requests authenticated before revocation (no ReadTimeout) — [cmd/deploy-gateway/main.go:183](../../../cmd/deploy-gateway/main.go#L183)
   - Fix: Set ReadTimeout on both servers; re-check token revocation under the workspace mutex before mutating.
+  - Done: agentauth.ReadBodyFirst buffers the bounded body (30 s read deadline) before authentication on /api/v1 and /mcp; oversize bodies get 413 before auth. Spec §12 updated.
 - [ ] **L6** compose v5.2.0 'up --wait' sometimes exits 0 when the wait timeout hits while health is 'starting' (3/10 runs) → deploy recorded ok — [internal/service/deploy.go:80](../../../internal/service/deploy.go#L80)
   - Fix: After up, check every container is running and healthy (or has no healthcheck) before recording ok; verify on v5.5.1.
 - [ ] **L7** Template label keys that render to the same key pick a random value (Go map order) — [internal/tmpl/tmpl.go:195](../../../internal/tmpl/tmpl.go#L195)
