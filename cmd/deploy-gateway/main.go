@@ -176,7 +176,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		logger.Warn("orphaned gateway containers found; see the admin UI", "count", len(orphans))
 	}
 
-	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute), TrustedProxies: cfg.TrustedProxies}
+	warnUntrustedProxies(cfg, logger)
+	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute),
+		TrustedProxies: cfg.TrustedProxies, Logger: logger}
 	adminSrv := admin.New(admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
 		TrustedProxies: cfg.AdminTrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
 	servers := []*http.Server{
@@ -212,6 +214,15 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		srv.Shutdown(shutdownCtx)
 	}
 	return nil
+}
+
+// warnUntrustedProxies flags a missing TRUSTED_PROXIES: behind a reverse
+// proxy every agent then shares the proxy's address in the audit log and
+// rate limiter.
+func warnUntrustedProxies(cfg config.Config, logger *slog.Logger) {
+	if len(cfg.TrustedProxies) == 0 {
+		logger.Warn("TRUSTED_PROXIES is empty: behind a reverse proxy all agents are logged and rate-limited under the proxy's address; set it to the proxy's IP")
+	}
 }
 
 func warnMissingNetworks(ctx context.Context, st *store.Store, dc *dockerx.Client, logger *slog.Logger) {

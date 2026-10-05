@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/sebbi08/deployment-gateway/internal/agentauth"
 	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/config"
 	"github.com/sebbi08/deployment-gateway/internal/service"
 	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
 	"github.com/sebbi08/deployment-gateway/internal/store"
@@ -96,5 +99,19 @@ func TestAgentHandlerHealthz(t *testing.T) {
 	agentHandler(svc, authn, fakePinger{}).ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/whoami", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("api without token: %d", w.Code)
+	}
+}
+
+func TestWarnUntrustedProxies(t *testing.T) {
+	var buf bytes.Buffer
+	warnUntrustedProxies(config.Config{}, slog.New(slog.NewTextHandler(&buf, nil)))
+	if !strings.Contains(buf.String(), "TRUSTED_PROXIES") {
+		t.Fatalf("empty TRUSTED_PROXIES must warn, got %q", buf.String())
+	}
+	buf.Reset()
+	warnUntrustedProxies(config.Config{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32")}},
+		slog.New(slog.NewTextHandler(&buf, nil)))
+	if buf.Len() != 0 {
+		t.Fatalf("configured TRUSTED_PROXIES must not warn, got %q", buf.String())
 	}
 }

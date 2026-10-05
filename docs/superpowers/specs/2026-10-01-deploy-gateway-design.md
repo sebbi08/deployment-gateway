@@ -273,7 +273,7 @@ Error codes: `unauthorized`, `validation_failed`, `quota_exceeded`, `port_taken`
 - Format `dgw_<43 chars base64url>` (256 bits). Shown once at creation.
 - Stored as SHA-256 hash plus an 8-char display prefix. Lookup by hash; constant-time compare.
 - Multiple tokens per workspace; revocable; `last_used_at` tracked.
-- Failed auth: uniform 401; per-IP rate limit (10 failures within 1 min → 15 min block).
+- Failed auth: uniform 401; per-IP rate limit (10 failures within 1 min → 15 min block). The block applies to failing attempts only: a valid token is always accepted, because the client IP may be a shared proxy address. Failures and the start of a block are logged with the client IP.
 - Client IP from `X-Forwarded-For` only if the direct peer is in `TRUSTED_PROXIES`.
 
 ### Admin

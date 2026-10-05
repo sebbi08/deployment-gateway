@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"strings"
@@ -23,22 +24,22 @@ type Authenticator struct {
 	Store          *store.Store
 	Limiter        *auth.Limiter
 	TrustedProxies []netip.Prefix
+	Logger         *slog.Logger // nil: slog.Default()
 }
 
 type ctxKey struct{}
 
+// Verify resolves a token to its workspace. A valid token is accepted even
+// from a blocked IP: the IP is often a shared proxy address, and 256-bit
+// tokens make blocking irrelevant against guessing. The limiter only keeps
+// failing clients from flooding the log.
 func (a *Authenticator) Verify(ctx context.Context, token, ip string) (service.Principal, error) {
-	if a.Limiter.Blocked(ip) {
-		return service.Principal{}, ErrUnauthorized
-	}
 	if !strings.HasPrefix(token, "dgw_") || len(token) != 47 {
-		a.Limiter.Fail(ip)
-		return service.Principal{}, ErrUnauthorized
+		return service.Principal{}, a.fail(ip, "malformed token")
 	}
 	t, ws, err := a.Store.TokenByHash(ctx, auth.HashToken(token))
 	if errors.Is(err, store.ErrNotFound) {
-		a.Limiter.Fail(ip)
-		return service.Principal{}, ErrUnauthorized
+		return service.Principal{}, a.fail(ip, "unknown or revoked token")
 	}
 	if err != nil {
 		return service.Principal{}, err
@@ -47,6 +48,24 @@ func (a *Authenticator) Verify(ctx context.Context, token, ip string) (service.P
 		return service.Principal{}, err
 	}
 	return service.Principal{Workspace: ws, TokenID: t.ID, ClientIP: ip}, nil
+}
+
+// fail counts a failed attempt and logs it, unless the IP is already blocked.
+func (a *Authenticator) fail(ip, reason string) error {
+	if a.Limiter.Blocked(ip) {
+		return ErrUnauthorized
+	}
+	log := a.Logger
+	if log == nil {
+		log = slog.Default()
+	}
+	if a.Limiter.Fail(ip) {
+		log.Warn("agent auth blocked: too many failures; further failures from this address are not logged",
+			"client_ip", ip, "reason", reason)
+	} else {
+		log.Warn("agent auth failed", "client_ip", ip, "reason", reason)
+	}
+	return ErrUnauthorized
 }
 
 func (a *Authenticator) Middleware(next http.Handler) http.Handler {

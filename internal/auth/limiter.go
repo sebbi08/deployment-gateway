@@ -35,7 +35,8 @@ func (l *Limiter) Blocked(key string) bool {
 	return false
 }
 
-func (l *Limiter) Fail(key string) {
+// Fail records a failure and reports whether it started a block.
+func (l *Limiter) Fail(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := l.Now()
@@ -52,9 +53,10 @@ func (l *Limiter) Fail(key string) {
 	if len(kept) >= l.max {
 		l.blocked[key] = now.Add(l.block)
 		delete(l.fails, key)
-		return
+		return true
 	}
 	l.fails[key] = kept
+	return false
 }
 
 func (l *Limiter) Reset(key string) {

@@ -1,11 +1,14 @@
 package agentauth
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -44,8 +47,46 @@ func TestVerify(t *testing.T) {
 			t.Errorf("token %q: %v", bad, err)
 		}
 	}
-	if _, err := a.Verify(context.Background(), tok, "5.5.5.5"); !errors.Is(err, ErrUnauthorized) {
-		t.Fatal("IP must be blocked after repeated failures, even with a valid token")
+	if !a.Limiter.Blocked("5.5.5.5") {
+		t.Fatal("repeated failures must block the IP")
+	}
+}
+
+// A blocked IP is often a shared proxy address, so it must never lock out
+// valid tokens; 256-bit tokens make the block irrelevant against guessing.
+func TestVerifyValidTokenPassesFromBlockedIP(t *testing.T) {
+	a, tok := setup(t)
+	for range 3 {
+		a.Verify(context.Background(), "dgw_short", "172.20.0.10")
+	}
+	if !a.Limiter.Blocked("172.20.0.10") {
+		t.Fatal("precondition: IP not blocked")
+	}
+	p, err := a.Verify(context.Background(), tok, "172.20.0.10")
+	if err != nil || p.Workspace.Name != "alice" {
+		t.Fatalf("valid token from blocked IP: %+v, %v", p, err)
+	}
+}
+
+func TestVerifyLogsFailuresAndBlockOnce(t *testing.T) {
+	a, tok := setup(t)
+	var buf bytes.Buffer
+	a.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+	for range 5 {
+		a.Verify(context.Background(), tok+"x", "9.9.9.9")
+	}
+	out := buf.String()
+	if n := strings.Count(out, "agent auth failed"); n != 2 {
+		t.Errorf("want 2 failure lines before the block, got %d:\n%s", n, out)
+	}
+	if n := strings.Count(out, "agent auth blocked"); n != 1 {
+		t.Errorf("want exactly 1 block line, got %d:\n%s", n, out)
+	}
+	if !strings.Contains(out, "client_ip=9.9.9.9") {
+		t.Errorf("client IP not logged:\n%s", out)
+	}
+	if strings.Contains(out, tok) {
+		t.Error("token must never be logged")
 	}
 }
 
