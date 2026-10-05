@@ -229,3 +229,25 @@ func TestDeployFailedUpStillRuntimeChecked(t *testing.T) {
 		t.Fatalf("containers not torn down: %v", calls)
 	}
 }
+
+// compose down waits for the global compose slot, so containers that failed
+// the runtime check must be removed directly first.
+func TestDeployRuntimeViolationRemovesContainersBeforeComposeDown(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	h.compose.AfterUp = func() {
+		h.docker.MutateFacts("alice-shop-web", func(f *dockerx.Facts) { f.Privileged = true })
+	}
+	wiredDown := h.compose.OnDown
+	remaining := -1
+	h.compose.OnDown = func(project string) {
+		remaining = len(h.docker.Containers)
+		wiredDown(project)
+	}
+	if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)}); code(err) != service.CodeSecurity {
+		t.Fatalf("expected security_violation, got %v", err)
+	}
+	if remaining != 0 {
+		t.Fatalf("%d containers still existed when compose down ran", remaining)
+	}
+}

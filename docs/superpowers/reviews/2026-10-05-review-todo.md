@@ -25,8 +25,9 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 - [x] **L3** Admin 'Stop app' is undone by the agent's restart tool — [internal/service/admin.go:229](../../../internal/service/admin.go#L229)
   - Fix: Mark admin-stopped apps (DB flag) and refuse agent restart until an admin starts them again, or document 'revoke tokens to stop'.
   - Done (option B): Apps tab and README explain that Stop is temporary and that tokens must be revoked to keep an app down.
-- [ ] **L4** Teardown after a runtime security violation queues behind the global compose slot, so rejected containers keep running until the queue drains — [internal/service/deploy.go:67](../../../internal/service/deploy.go#L67)
+- [x] **L4** Teardown after a runtime security violation queues behind the global compose slot, so rejected containers keep running until the queue drains — [internal/service/deploy.go:67](../../../internal/service/deploy.go#L67)
   - Fix: Give security teardowns priority (separate slot / bypass the semaphore) or stop containers via the Docker API immediately.
+  - Done: on a runtime violation the app's containers are force-removed via the Docker API first; compose down then cleans up the rest.
 - [ ] **L5** Revoked tokens still complete slow-body requests authenticated before revocation (no ReadTimeout) — [cmd/deploy-gateway/main.go:183](../../../cmd/deploy-gateway/main.go#L183)
   - Fix: Set ReadTimeout on both servers; re-check token revocation under the workspace mutex before mutating.
 - [ ] **L6** compose v5.2.0 'up --wait' sometimes exits 0 when the wait timeout hits while health is 'starting' (3/10 runs) → deploy recorded ok — [internal/service/deploy.go:80](../../../internal/service/deploy.go#L80)

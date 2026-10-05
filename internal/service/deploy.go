@@ -72,6 +72,11 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	if violations := s.runtimeCheck(bg, ws.Name, app, pl); len(violations) > 0 {
 		detail := strings.Join(violations, "; ")
 		msg := "deployment rejected by runtime security check; containers were removed"
+		// Remove the containers right away: compose down waits for the global
+		// compose slot, possibly behind other tenants' operations.
+		if err := s.removeAppContainers(bg, ws.Name, app); err != nil {
+			detail += " | direct container removal failed: " + err.Error()
+		}
 		downOut, downErr := s.Compose.Down(bg, file, project)
 		if downErr != nil {
 			detail += " | compose down failed: " + downErr.Error()
@@ -94,6 +99,22 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		return AppStatus{}, err
 	}
 	return s.status(ctx, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
+}
+
+// removeAppContainers force-removes every container of the app through the
+// Docker API (no compose slot needed).
+func (s *Service) removeAppContainers(ctx context.Context, ws, app string) error {
+	containers, err := s.Docker.ProjectContainers(ctx, ws, app)
+	if err != nil {
+		return err
+	}
+	var errs []error
+	for _, c := range containers {
+		if err := s.Docker.RemoveContainer(ctx, c.ID); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *Service) prevHint(ws, app string) string {
