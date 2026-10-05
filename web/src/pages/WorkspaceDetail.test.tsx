@@ -47,6 +47,13 @@ test("a new token is shown exactly once", async () => {
   expect(screen.queryByText("dgw_secretsecretsecret")).not.toBeInTheDocument();
 });
 
+test("the apps tab explains that stopping does not keep an app down", async () => {
+  mockApi({ "GET /workspaces/alice": { body: detail } });
+  renderDetail();
+  expect(await screen.findByText(/the agent can start it again/i)).toBeInTheDocument();
+  expect(screen.getByText(/revoke the workspace's tokens/i)).toBeInTheDocument();
+});
+
 test("deleting an app requires typing its name", async () => {
   const calls = mockApi({
     "GET /workspaces/alice": { body: detail },

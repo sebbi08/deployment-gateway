@@ -13,17 +13,18 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 - [x] **H3** (F66, confirmed) /mcp accepts JSON-RPC batches: one POST runs N tool calls concurrently and buffers every result — [internal/mcpserver/mcpserver.go:107](../../../internal/mcpserver/mcpserver.go#L107)
   - Fix: Wrap the SDK handler in mcpserver.Handler. Read the body through http.MaxBytesReader (about 128-256 KB, and also set StreamableHTTPOptions.MaxRequestBodyBytes), and return 400 when the first non-whitespace byte is '['. I checked this in the PoC: batches get 400 for every version and the official go-sdk client flow still works. Also add a global or per-token semaphore in addTool to cap tool calls in flight, and give …
   - Done: JSON-RPC batches rejected (400) for every protocol version; /mcp body limited to 128 KB + 4 KB envelope (413); max 8 concurrent calls per token on /mcp and /api/v1 (429 too_many_requests); example stack sets mem_limit (GATEWAY_MEM_LIMIT, default 512m); spec §12 updated.
-- [ ] **H4** (F68, confirmed) Workspaces can run containers as the same host uid, so per-uid kernel limits (inotify, keyring) let one tenant DoS others — [internal/render/render.go:68](../../../internal/render/render.go#L68)
+- [ ] **H4** _(deferred 2026-10-05)_ (F68, confirmed) Workspaces can run containers as the same host uid, so per-uid kernel limits (inotify, keyring) let one tenant DoS others — [internal/render/render.go:68](../../../internal/render/render.go#L68)
   - Fix: Give each workspace a disjoint host uid range; reject agent `user:` values outside it and assign an in-range default (also forcing non-root). Or map each app into a per-workspace userns via subuid/subgid -- daemon-wide --userns-remap does NOT help (all tenants share one base). Minimum defence-in-depth: document in README/spec that same-uid tenants share per-uid kernel limits (inotify instances/watches, keyring), …
 
 ## Leads (not verified end-to-end — check first)
 
-- [ ] **L1** SSO cookies scoped to the parent domain (Authelia/oauth2-proxy) are sent to agent apps under \*.apps.example.com; a replayed cookie grants gateway admin in proxy mode — [README.md:49](../../../README.md#L49)
+- [ ] **L1** _(deferred 2026-10-05)_ SSO cookies scoped to the parent domain (Authelia/oauth2-proxy) are sent to agent apps under \*.apps.example.com; a replayed cookie grants gateway admin in proxy mode — [README.md:49](../../../README.md#L49)
   - Fix: Serve agent apps from a separate registrable domain, or document that the SSO cookie domain must not cover the apps domain.
-- [ ] **L2** SSRF / port probing via image pulls: any registry host (127.0.0.1:port, LAN) is accepted, the daemon pulls from the host network and follows auth-realm redirects; pull errors reach the agent nearly verbatim — [internal/stack/validate.go:31](../../../internal/stack/validate.go#L31)
+- [ ] **L2** _(deferred 2026-10-05)_ SSRF / port probing via image pulls: any registry host (127.0.0.1:port, LAN) is accepted, the daemon pulls from the host network and follows auth-realm redirects; pull errors reach the agent nearly verbatim — [internal/stack/validate.go:31](../../../internal/stack/validate.go#L31)
   - Fix: Reject loopback/link-local/private registry hosts by default (configurable allowlist); return generic pull errors to agents, full text only to the audit log.
-- [ ] **L3** Admin 'Stop app' is undone by the agent's restart tool — [internal/service/admin.go:229](../../../internal/service/admin.go#L229)
+- [x] **L3** Admin 'Stop app' is undone by the agent's restart tool — [internal/service/admin.go:229](../../../internal/service/admin.go#L229)
   - Fix: Mark admin-stopped apps (DB flag) and refuse agent restart until an admin starts them again, or document 'revoke tokens to stop'.
+  - Done (option B): Apps tab and README explain that Stop is temporary and that tokens must be revoked to keep an app down.
 - [ ] **L4** Teardown after a runtime security violation queues behind the global compose slot, so rejected containers keep running until the queue drains — [internal/service/deploy.go:67](../../../internal/service/deploy.go#L67)
   - Fix: Give security teardowns priority (separate slot / bypass the semaphore) or stop containers via the Docker API immediately.
 - [ ] **L5** Revoked tokens still complete slow-body requests authenticated before revocation (no ReadTimeout) — [cmd/deploy-gateway/main.go:183](../../../cmd/deploy-gateway/main.go#L183)

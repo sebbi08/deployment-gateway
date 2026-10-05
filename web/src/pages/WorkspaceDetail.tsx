@@ -98,6 +98,10 @@ function AppsTab({ ws }: { ws: Detail }) {
           ))}
         </Table.Tbody>
       </Table>
+      <Text size="xs" c="dimmed">
+        Stop is temporary: the agent can start it again with restart or a new deploy. To keep an app down, revoke the
+        workspace's tokens or delete the app.
+      </Text>
       <Modal opened={deleting !== null} onClose={() => setDeleting(null)} title={`Delete app ${deleting?.app ?? ""}`}>
         {deleting && (
           <Stack>

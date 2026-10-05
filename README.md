@@ -59,7 +59,7 @@ Open the admin host (`https://$ADMIN_HOST`, e.g. `https://deploy-admin.example.c
      traefik.http.services.{{id}}.loadbalancer.server.port={{port}}
      ```
    The editor shows a live preview (validation errors, example host, rendered labels) while you type.
-2. **Workspaces** → create a workspace (name, quota, published port range, bind IP); on its page grant templates (Templates tab) and create a token (Tokens tab, shown once with a copy button).
+2. **Workspaces** → create a workspace (name, quota, published port range, bind IP); on its page grant templates (Templates tab) and create a token (Tokens tab, shown once with a copy button). Stopping an app in the Apps tab is temporary: the agent can restart or redeploy it. To keep an app down, revoke the workspace's tokens or delete the app.
 
 ## Connecting an agent
 
