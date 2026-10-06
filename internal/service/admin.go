@@ -130,9 +130,17 @@ func (s *Service) UpdateWorkspace(ctx context.Context, actor string, w store.Wor
 	if err != nil {
 		return err
 	}
+	stored, err := s.Store.GetWorkspace(ctx, w.ID)
+	if err != nil {
+		return err
+	}
 	for _, c := range claims {
 		if w.PortRangeStart == 0 || c.HostPort < w.PortRangeStart || c.HostPort > w.PortRangeEnd {
 			return validationError("ports", fmt.Sprintf("app %q publishes port %d outside the new range; redeploy or delete it first", c.App, c.HostPort))
+		}
+		// Running containers keep publishing on the old bind IP.
+		if w.PortBindIP != stored.PortBindIP {
+			return validationError("ports", fmt.Sprintf("app %q publishes port %d on %s; redeploy or delete it before changing the bind IP", c.App, c.HostPort, stored.PortBindIP))
 		}
 	}
 	return s.Store.UpdateWorkspace(ctx, w)

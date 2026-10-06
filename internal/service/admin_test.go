@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sebbi08/deployment-gateway/internal/auth"
@@ -219,5 +220,31 @@ func TestWorkspaceBindIPIsCanonical(t *testing.T) {
 	}
 	if got, _ := h.st.GetWorkspace(h.ctx, w.ID); got.PortBindIP != "192.168.1.10" {
 		t.Fatalf("updated bind IP = %q", got.PortBindIP)
+	}
+}
+
+// Running apps keep their published ports on the old bind IP until they are
+// redeployed, so a bind IP change is refused while ports are claimed.
+func TestUpdateWorkspaceRefusesBindIPChangeWithPublishedPorts(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	w, _ := h.st.GetWorkspace(h.ctx, p.Workspace.ID)
+	w.PortBindIP = "127.0.0.1"
+	err := h.svc.UpdateWorkspace(h.ctx, "admin", w)
+	if code(err) != service.CodeValidation || !strings.Contains(err.Error(), "shop") {
+		t.Fatalf("bind IP change with published ports: %v", err)
+	}
+	w.PortBindIP = "0.0.0.0"
+	w.Quota.MaxApps = 4
+	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); err != nil {
+		t.Fatalf("unchanged bind IP must still allow other edits: %v", err)
+	}
+	if _, err := h.svc.Delete(h.ctx, p, service.DeleteInput{App: "shop", Confirm: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	w.PortBindIP = "127.0.0.1"
+	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); err != nil {
+		t.Fatalf("bind IP change without published ports: %v", err)
 	}
 }
