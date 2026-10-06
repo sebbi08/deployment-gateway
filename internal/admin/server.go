@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/netip"
 	"path"
+	"slices"
 	"strings"
 	"time"
 
@@ -31,9 +32,13 @@ type Options struct {
 	Store          *store.Store
 	PasswordHash   string // empty = proxy mode
 	TrustedProxies []netip.Prefix
-	UserHeader     string
-	UI             fs.FS // built React app (index.html + assets/); may lack index.html
-	Logger         *slog.Logger
+	// ForwardedProxies are further reverse proxies (TRUSTED_PROXIES) whose
+	// X-Forwarded-For is trusted for the client IP only, never for proxy-mode
+	// authentication.
+	ForwardedProxies []netip.Prefix
+	UserHeader       string
+	UI               fs.FS // built React app (index.html + assets/); may lack index.html
+	Logger           *slog.Logger
 }
 
 type Server struct {
@@ -141,7 +146,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
-	ip := auth.ClientIP(r, s.opts.TrustedProxies)
+	ip := auth.ClientIP(r, slices.Concat(s.opts.TrustedProxies, s.opts.ForwardedProxies))
 	if s.limiter.Blocked(ip) {
 		s.opts.Logger.Warn("admin login rate limited", "client_ip", ip)
 		writeJSON(w, http.StatusTooManyRequests, apiError{Code: "rate_limited", Message: "too many failed attempts; try again later"})

@@ -179,7 +179,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	warnUntrustedProxies(cfg, logger)
 	authn := newAuthenticator(st, cfg, logger)
 	adminSrv := admin.New(admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
-		TrustedProxies: cfg.AdminTrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
+		TrustedProxies: cfg.AdminTrustedProxies, ForwardedProxies: cfg.TrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
 	servers := []*http.Server{
 		{Addr: cfg.AgentListen, Handler: agentHandler(svc, authn, dc), ReadHeaderTimeout: 10 * time.Second,
 			WriteTimeout: cfg.DeployTimeout + 2*time.Minute, IdleTimeout: 2 * time.Minute},

@@ -266,3 +266,38 @@ func TestLoginConcurrencyBounded(t *testing.T) {
 		t.Fatalf("after drain: %d %s", w.Code, w.Body.String())
 	}
 }
+
+// Behind a reverse proxy, failed logins of one client must not block the
+// admin's login from another client: the limiter keys on the forwarded IP
+// when the proxy is listed in ForwardedProxies (TRUSTED_PROXIES).
+func TestLoginLimiterUsesForwardedClientIP(t *testing.T) {
+	e := newEnvWith(t, false, builtUI, func(o *Options) {
+		o.ForwardedProxies = []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32")}
+	})
+	via := func(client string) func(*http.Request) {
+		return func(r *http.Request) {
+			r.RemoteAddr = "172.20.0.10:4000"
+			r.Header.Set("X-Forwarded-For", client)
+		}
+	}
+	for range 11 {
+		e.do("POST", "/api/admin/login", map[string]string{"password": "wrong"}, via("203.0.113.66"))
+	}
+	if w := e.do("POST", "/api/admin/login", map[string]string{"password": "correct horse battery"}, via("198.51.100.20")); w.Code != http.StatusNoContent {
+		t.Fatalf("admin login from another client behind the proxy: %d %s", w.Code, w.Body.String())
+	}
+}
+
+// ForwardedProxies only affects the client IP, never proxy-mode trust.
+func TestForwardedProxiesDoNotGrantProxyModeTrust(t *testing.T) {
+	e := newEnvWith(t, true, builtUI, func(o *Options) {
+		o.ForwardedProxies = []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32")}
+	})
+	w := e.do("GET", "/api/admin/me", nil, func(r *http.Request) {
+		r.RemoteAddr = "172.20.0.10:4000"
+		r.Header.Set("Remote-User", "mallory")
+	})
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("peer only in ForwardedProxies got %d, want 403", w.Code)
+	}
+}

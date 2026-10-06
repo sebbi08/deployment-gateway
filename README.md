@@ -25,7 +25,7 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
    cp deploy/docker-compose.yml /srv/deploy-gateway/
    cp deploy/.env.example /srv/deploy-gateway/.env
    ```
-   Then edit `/srv/deploy-gateway/.env`: `GATEWAY_VERSION`, `GATEWAY_DIR` (the stack folder — the workspaces path must be identical on host and in the container, the compose file derives both from it), `DOCKER_CONFIG_FILE`, `MCP_HOST`, `ADMIN_HOST`, `PROXY_NETWORK`, `TRAEFIK_ENTRYPOINT` and `TRUSTED_PROXIES` (the IP of your reverse-proxy container; without it every agent is audited and rate-limited under the proxy's address, and the gateway logs a startup warning). Pin the proxy's IP (e.g. `ipv4_address` on the proxy network) so it survives restarts.
+   Then edit `/srv/deploy-gateway/.env`: `GATEWAY_VERSION`, `GATEWAY_DIR` (the stack folder — the workspaces path must be identical on host and in the container, the compose file derives both from it), `DOCKER_CONFIG_FILE`, `MCP_HOST`, `ADMIN_HOST`, `PROXY_NETWORK`, `TRAEFIK_ENTRYPOINT` and `TRUSTED_PROXIES` (the IP of your reverse-proxy container; without it every agent and every admin login attempt is audited and rate-limited under the proxy's address, and the gateway logs a startup warning). Pin the proxy's IP (e.g. `ipv4_address` on the proxy network) so it survives restarts.
 3. Generate the admin password hash and paste it into `.env` (single quotes!):
    ```bash
    docker run --rm -i ghcr.io/sebbi08/deployment-gateway:0.1.0 hash-password
