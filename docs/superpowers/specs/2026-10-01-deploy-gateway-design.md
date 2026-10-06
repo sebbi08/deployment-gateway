@@ -264,7 +264,7 @@ Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/outp
 
 Ownership on every call: workspace comes only from the token (DB lookup); the app must exist in the workspace's DB records and folder; affected containers are found by Docker label filter `deploy-gateway.workspace=<ws>,deploy-gateway.app=<app>`. A request for an app in another workspace returns `not_found` (indistinguishable from nonexistent).
 
-Error codes: `unauthorized`, `validation_failed`, `quota_exceeded`, `port_taken`, `not_found`, `conflict` (app locked), `deploy_failed`, `security_violation`, `too_many_requests` (HTTP 429: more than 8 concurrent calls with one token), `internal`. Docker/compose output to agents is sanitized (truncated, no host paths outside the workspace); the full output goes to the audit log.
+Error codes: `unauthorized`, `validation_failed`, `quota_exceeded`, `port_taken`, `not_found`, `conflict` (app locked), `deploy_failed`, `security_violation`, `too_many_requests` (HTTP 429: more than 8 concurrent calls, or more than a burst of 30 calls refilled at 5 per second, with one token), `internal`. Docker/compose output to agents is sanitized (truncated, no host paths outside the workspace); the full output goes to the audit log.
 
 ## 13. Authentication
 
@@ -348,7 +348,7 @@ audit(id, ts, actor_type, actor, workspace, token_id, action, params_json, resul
 settings(key PRIMARY KEY, value)
 ```
 
-Audit params redact environment **values** (`***`); keys are kept. Retention job deletes rows older than the configured days (default 90).
+Audit params redact environment **values** (`***`); keys are kept. Params are stored without HTML escaping and limited to 8 KiB; larger params are replaced by a summary (app, service names and images, size and SHA-256 of the full redacted params). Retention job deletes rows older than the configured days (default 90).
 
 ## 16. Configuration (env)
 

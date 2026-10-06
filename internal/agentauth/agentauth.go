@@ -5,6 +5,7 @@ package agentauth
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -32,9 +33,15 @@ type Authenticator struct {
 	Logger         *slog.Logger // nil: slog.Default()
 	// MaxInFlight caps concurrent calls per token (0: unlimited).
 	MaxInFlight int
+	// RateBurst and RatePerSecond define a token bucket per token
+	// (RateBurst 0: unlimited).
+	RateBurst     int
+	RatePerSecond float64
+	Now           func() time.Time // nil: time.Now
 
 	mu       sync.Mutex
 	inFlight map[int64]int
+	buckets  map[int64]*bucket
 }
 
 type ctxKey struct{}
@@ -94,8 +101,8 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 			fmt.Fprintln(w, `{"code":"internal","message":"internal error"}`)
 			return
 		}
-		if !a.acquire(p.TokenID) {
-			writeTooMany(w)
+		if msg, ok := a.acquire(p.TokenID); !ok {
+			writeTooMany(w, msg)
 			return
 		}
 		defer a.release(p.TokenID)
@@ -134,21 +141,46 @@ func (a *Authenticator) InFlight() int {
 	return n
 }
 
-// acquire takes one of the token's MaxInFlight slots.
-func (a *Authenticator) acquire(tokenID int64) bool {
-	if a.MaxInFlight <= 0 {
-		return true
-	}
+type bucket struct {
+	tokens float64
+	last   time.Time
+}
+
+// acquire admits a call of the token: it must have a rate-limit token left
+// and a free MaxInFlight slot. It returns an error message when it does not.
+func (a *Authenticator) acquire(tokenID int64) (string, bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	if a.inFlight == nil {
-		a.inFlight = map[int64]int{}
+	if a.RateBurst > 0 {
+		now := time.Now()
+		if a.Now != nil {
+			now = a.Now()
+		}
+		if a.buckets == nil {
+			a.buckets = map[int64]*bucket{}
+		}
+		b, ok := a.buckets[tokenID]
+		if !ok {
+			b = &bucket{tokens: float64(a.RateBurst), last: now}
+			a.buckets[tokenID] = b
+		}
+		b.tokens = min(float64(a.RateBurst), b.tokens+now.Sub(b.last).Seconds()*a.RatePerSecond)
+		b.last = now
+		if b.tokens < 1 {
+			return "too many calls for this token; slow down", false
+		}
+		b.tokens--
 	}
-	if a.inFlight[tokenID] >= a.MaxInFlight {
-		return false
+	if a.MaxInFlight > 0 {
+		if a.inFlight == nil {
+			a.inFlight = map[int64]int{}
+		}
+		if a.inFlight[tokenID] >= a.MaxInFlight {
+			return "too many concurrent calls for this token; retry later", false
+		}
+		a.inFlight[tokenID]++
 	}
-	a.inFlight[tokenID]++
-	return true
+	return "", true
 }
 
 func (a *Authenticator) release(tokenID int64) {
@@ -162,10 +194,11 @@ func (a *Authenticator) release(tokenID int64) {
 	}
 }
 
-func writeTooMany(w http.ResponseWriter) {
+func writeTooMany(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusTooManyRequests)
-	fmt.Fprintln(w, `{"code":"too_many_requests","message":"too many concurrent calls for this token; retry later"}`)
+	b, _ := json.Marshal(map[string]string{"code": "too_many_requests", "message": msg})
+	w.Write(append(b, '\n'))
 }
 
 // LimitMCP caps concurrent MCP requests per token. It must run behind the
@@ -181,8 +214,8 @@ func (a *Authenticator) LimitMCP(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if !a.acquire(p.TokenID) {
-			writeTooMany(w)
+		if msg, ok := a.acquire(p.TokenID); !ok {
+			writeTooMany(w, msg)
 			return
 		}
 		defer a.release(p.TokenID)

@@ -254,3 +254,41 @@ func TestReadBodyFirstRejectsOversizeBody(t *testing.T) {
 		t.Fatalf("got %d, want 413", w.Code)
 	}
 }
+
+func TestRateLimitPerToken(t *testing.T) {
+	a, tok := setup(t)
+	ws, err := a.Store.GetWorkspaceByName(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, hash, prefix, _ := auth.GenerateToken()
+	if _, err := a.Store.CreateToken(context.Background(), ws.ID, "other", hash, prefix); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Unix(1_000_000, 0)
+	a.Now = func() time.Time { return now }
+	a.RateBurst, a.RatePerSecond = 3, 1
+	h := a.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	call := func(token string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest("POST", "/api/v1/whoami", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	for i := range 3 {
+		if w := call(tok); w.Code != 200 {
+			t.Fatalf("call %d within burst: %d", i, w.Code)
+		}
+	}
+	if w := call(tok); w.Code != http.StatusTooManyRequests || !strings.Contains(w.Body.String(), "too_many_requests") {
+		t.Fatalf("call beyond burst: %d %q", w.Code, w.Body.String())
+	}
+	if w := call(other); w.Code != 200 {
+		t.Fatalf("another token must have its own bucket: %d", w.Code)
+	}
+	now = now.Add(2 * time.Second)
+	if w := call(tok); w.Code != 200 {
+		t.Fatalf("bucket must refill over time: %d", w.Code)
+	}
+}

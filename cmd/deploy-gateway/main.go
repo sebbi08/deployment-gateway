@@ -215,13 +215,18 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	return nil
 }
 
-// maxInFlightPerToken caps concurrent agent calls per token; a deploy holds
-// its slot until it finishes.
-const maxInFlightPerToken = 8
+// Per-token limits: at most 8 concurrent calls (a deploy holds its slot until
+// it finishes) and a token bucket of 30 calls refilled at 5 per second.
+const (
+	maxInFlightPerToken = 8
+	rateBurstPerToken   = 30
+	ratePerTokenPerSec  = 5
+)
 
 func newAuthenticator(st *store.Store, cfg config.Config, logger *slog.Logger) *agentauth.Authenticator {
 	return &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute),
-		TrustedProxies: cfg.TrustedProxies, Logger: logger, MaxInFlight: maxInFlightPerToken}
+		TrustedProxies: cfg.TrustedProxies, Logger: logger, MaxInFlight: maxInFlightPerToken,
+		RateBurst: rateBurstPerToken, RatePerSecond: ratePerTokenPerSec}
 }
 
 // warnUntrustedProxies flags a missing TRUSTED_PROXIES: behind a reverse

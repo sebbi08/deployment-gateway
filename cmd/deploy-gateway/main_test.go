@@ -120,7 +120,7 @@ func TestNewAuthenticatorWiring(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(&bytes.Buffer{}, nil))
 	cfg := config.Config{TrustedProxies: []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32")}}
 	a := newAuthenticator(nil, cfg, logger)
-	if a.MaxInFlight <= 0 || a.Logger != logger || a.Limiter == nil || len(a.TrustedProxies) != 1 {
+	if a.MaxInFlight <= 0 || a.RateBurst <= 0 || a.RatePerSecond <= 0 || a.Logger != logger || a.Limiter == nil || len(a.TrustedProxies) != 1 {
 		t.Fatalf("authenticator not wired: %+v", a)
 	}
 }

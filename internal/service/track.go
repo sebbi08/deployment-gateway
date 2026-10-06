@@ -1,7 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -49,9 +52,16 @@ func (s *Service) finish(ctx context.Context, e *store.AuditEntry, errp *error, 
 	}
 }
 
+// maxAuditParams bounds the stored params of one audit row. Every call,
+// rejected ones included, is audited, so unbounded rows would let a single
+// token fill the data disk.
+const maxAuditParams = 8 << 10
+
 // redact serialises params with every environment value replaced by ***.
+// Params larger than maxAuditParams are replaced by a summary (app, images,
+// size and SHA-256 of the full redacted params).
 func redact(params any) string {
-	b, err := json.Marshal(params)
+	b, err := marshalPlain(params)
 	if err != nil {
 		return `{"error":"unserializable params"}`
 	}
@@ -60,8 +70,49 @@ func redact(params any) string {
 		return string(b)
 	}
 	redactEnv(v)
-	out, _ := json.Marshal(v)
-	return string(out)
+	out, _ := marshalPlain(v)
+	if len(out) <= maxAuditParams {
+		return string(out)
+	}
+	sum := sha256.Sum256(out)
+	summary := map[string]any{"truncated": true, "size": len(out), "sha256": hex.EncodeToString(sum[:])}
+	if m, ok := v.(map[string]any); ok {
+		for _, k := range []string{"app", "service", "confirm"} {
+			if s, ok := m[k].(string); ok && len(s) <= 256 {
+				summary[k] = s
+			}
+		}
+		if st, ok := m["stack"].(map[string]any); ok {
+			if svcs, ok := st["services"].(map[string]any); ok {
+				images := map[string]string{}
+				for name, svc := range svcs {
+					if sm, ok := svc.(map[string]any); ok && len(name) <= 64 {
+						if img, ok := sm["image"].(string); ok && len(img) <= 512 {
+							images[name] = img
+						}
+					}
+					if len(images) >= 16 {
+						break
+					}
+				}
+				summary["images"] = images
+			}
+		}
+	}
+	s, _ := marshalPlain(summary)
+	return string(s)
+}
+
+// marshalPlain is json.Marshal without HTML escaping ('<' would be stored as
+// a 6-byte escape) and without the trailing newline.
+func marshalPlain(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 func redactEnv(v any) {
