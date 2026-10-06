@@ -5,6 +5,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -41,6 +42,8 @@ type Docker interface {
 type Principal struct {
 	Workspace store.Workspace
 	TokenID   int64
+	// TokenHash identifies the token beyond its (reusable) ID.
+	TokenHash string
 	ClientIP  string
 }
 
@@ -98,4 +101,25 @@ func lockKey(ws, app string) string { return ws + "/" + app }
 func (s *Service) wsMutex(ws string) *sync.Mutex {
 	m, _ := s.wsLocks.LoadOrStore(ws, &sync.Mutex{})
 	return m.(*sync.Mutex)
+}
+
+// current reloads the caller's workspace and checks that the token is still
+// valid. Workspace and token IDs are reused after deletion, so the workspace
+// must also keep its name and creation time, and the token its hash.
+func (s *Service) current(ctx context.Context, p Principal) (store.Workspace, error) {
+	ws, err := s.Store.GetWorkspace(ctx, p.Workspace.ID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && (ws.Name != p.Workspace.Name || !ws.CreatedAt.Equal(p.Workspace.CreatedAt))) {
+		return store.Workspace{}, notFoundError("workspace")
+	}
+	if err != nil {
+		return store.Workspace{}, err
+	}
+	ok, err := s.Store.TokenActive(ctx, p.TokenID, p.TokenHash, ws.ID)
+	if err != nil {
+		return store.Workspace{}, err
+	}
+	if !ok {
+		return store.Workspace{}, &Error{Code: CodeUnauthorized, Message: "unauthorized"}
+	}
+	return ws, nil
 }

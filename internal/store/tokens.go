@@ -101,3 +101,11 @@ func (s *Store) ListTokens(ctx context.Context, wsID int64) ([]Token, error) {
 	}
 	return out, rows.Err()
 }
+
+// TokenActive reports whether token id still exists with the given hash, is
+// not revoked and belongs to workspace wsID.
+func (s *Store) TokenActive(ctx context.Context, id int64, hash string, wsID int64) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM tokens WHERE id=? AND hash=? AND workspace_id=? AND revoked_at IS NULL`, id, hash, wsID).Scan(&n)
+	return n == 1, err
+}

@@ -20,21 +20,29 @@ import (
 
 func (s *Service) Validate(ctx context.Context, p Principal, in DeployInput) (res ValidateResult, err error) {
 	defer s.track(ctx, p, "validate", in, &err, time.Now())
-	pl, err := s.plan(ctx, p.Workspace, in.App, &in.Stack)
+	ws, err := s.current(ctx, p)
 	if err != nil {
 		return ValidateResult{}, err
 	}
-	if err := s.checkPortConflicts(ctx, p.Workspace, in.App, pl.claims); err != nil {
+	pl, err := s.plan(ctx, ws, in.App, &in.Stack)
+	if err != nil {
 		return ValidateResult{}, err
 	}
-	return ValidateResult{App: in.App, Services: pl.servicePlans(p.Workspace.Name), TotalMemoryMB: pl.memBytes >> 20, TotalCPUs: pl.cpus}, nil
+	if err := s.checkPortConflicts(ctx, ws, in.App, pl.claims); err != nil {
+		return ValidateResult{}, err
+	}
+	return ValidateResult{App: in.App, Services: pl.servicePlans(ws.Name), TotalMemoryMB: pl.memBytes >> 20, TotalCPUs: pl.cpus}, nil
 }
 
 func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res AppStatus, err error) {
 	defer s.track(ctx, p, "deploy", in, &err, time.Now())
-	ws, app := p.Workspace, in.App
+	app := in.App
 	if !names.ValidApp(app) {
 		return AppStatus{}, validationError("app", appRule)
+	}
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return AppStatus{}, err
 	}
 	unlock, ok := s.Compose.TryLock(lockKey(ws.Name, app))
 	if !ok {
@@ -44,7 +52,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 
 	// Pull and the image-label check run before anything is committed: while
 	// they can still fail, the old containers keep running and stay charged.
-	staged, err := s.stage(ctx, ws, app, &in.Stack)
+	staged, err := s.stage(ctx, p, app, &in.Stack)
 	if err != nil {
 		return AppStatus{}, err
 	}
@@ -62,7 +70,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		os.Remove(next)
 		return AppStatus{}, err
 	}
-	appRec, pl, prev, err := s.prepare(bg, ws, app, &in.Stack)
+	appRec, pl, prev, err := s.prepare(bg, p, app, &in.Stack)
 	if err != nil {
 		return AppStatus{}, err
 	}
@@ -196,11 +204,11 @@ func (s *Service) checkImageLabels(ctx context.Context, pl *planned) error {
 
 // stage plans the deploy and writes docker-compose.next.yml without changing
 // any DB state, so pull and the image-label check can run first.
-func (s *Service) stage(ctx context.Context, ws store.Workspace, app string, st *stack.Stack) (*planned, error) {
-	mu := s.wsMutex(ws.Name)
+func (s *Service) stage(ctx context.Context, p Principal, app string, st *stack.Stack) (*planned, error) {
+	mu := s.wsMutex(p.Workspace.Name)
 	mu.Lock()
 	defer mu.Unlock()
-	pl, err := s.planLocked(ctx, ws, app, st)
+	pl, ws, err := s.planLocked(ctx, p, app, st)
 	if err != nil {
 		return nil, err
 	}
@@ -210,16 +218,16 @@ func (s *Service) stage(ctx context.Context, ws store.Workspace, app string, st 
 	return pl, s.writeNext(ws.Name, app, pl)
 }
 
-// planLocked plans under the workspace mutex. DeleteWorkspace holds the same
-// mutex; the principal may have been authenticated before the workspace was
-// deleted.
-func (s *Service) planLocked(ctx context.Context, ws store.Workspace, app string, st *stack.Stack) (*planned, error) {
-	if _, err := s.Store.GetWorkspace(ctx, ws.ID); errors.Is(err, store.ErrNotFound) {
-		return nil, notFoundError("workspace")
-	} else if err != nil {
-		return nil, err
+// planLocked plans under the workspace mutex with the current workspace row.
+// DeleteWorkspace holds the same mutex; the workspace may have been deleted
+// or the token revoked since the request was authenticated.
+func (s *Service) planLocked(ctx context.Context, p Principal, app string, st *stack.Stack) (*planned, store.Workspace, error) {
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return nil, store.Workspace{}, err
 	}
-	return s.plan(ctx, ws, app, st)
+	pl, err := s.plan(ctx, ws, app, st)
+	return pl, ws, err
 }
 
 func (s *Service) nextFile(ws, app string) string {
@@ -242,11 +250,11 @@ func (s *Service) writeNext(ws, app string, pl *planned) error {
 // apps cannot both pass the quota check. It re-plans (pull may have taken a
 // while), commits the reservation and rotates the compose files. It returns
 // the app's previous record, or nil for a new app.
-func (s *Service) prepare(ctx context.Context, ws store.Workspace, app string, st *stack.Stack) (store.App, *planned, *store.App, error) {
-	mu := s.wsMutex(ws.Name)
+func (s *Service) prepare(ctx context.Context, p Principal, app string, st *stack.Stack) (store.App, *planned, *store.App, error) {
+	mu := s.wsMutex(p.Workspace.Name)
 	mu.Lock()
 	defer mu.Unlock()
-	pl, err := s.planLocked(ctx, ws, app, st)
+	pl, ws, err := s.planLocked(ctx, p, app, st)
 	if err != nil {
 		return store.App{}, nil, nil, err
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/sebbi08/deployment-gateway/internal/dockerx"
 	"github.com/sebbi08/deployment-gateway/internal/runner"
 	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
 	"github.com/sebbi08/deployment-gateway/internal/store"
 	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
@@ -74,8 +75,7 @@ func TestIntegrationDeployLifecycle(t *testing.T) {
 		if err := svc.SetGrants(ctx, "itest", w, []int64{tplID}); err != nil {
 			t.Fatal(err)
 		}
-		w, _ = st.GetWorkspaceByName(ctx, name)
-		return service.Principal{Workspace: w, TokenID: 1, ClientIP: "127.0.0.1"}
+		return servicetest.Principal(t, svc, st, name, "127.0.0.1")
 	}
 	p := mk("itest", 28080)
 	other := mk("itother", 28090)

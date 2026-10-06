@@ -15,12 +15,20 @@ type composeOp func(ctx context.Context, file, project, service string) (string,
 
 func (s *Service) Restart(ctx context.Context, p Principal, in ServiceInput) (res AppStatus, err error) {
 	defer s.track(ctx, p, "restart", in, &err, time.Now())
-	return s.lifecycle(ctx, p.Workspace, in.App, in.Service, s.Compose.Restart)
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return AppStatus{}, err
+	}
+	return s.lifecycle(ctx, ws, in.App, in.Service, s.Compose.Restart)
 }
 
 func (s *Service) Stop(ctx context.Context, p Principal, in ServiceInput) (res AppStatus, err error) {
 	defer s.track(ctx, p, "stop", in, &err, time.Now())
-	return s.lifecycle(ctx, p.Workspace, in.App, in.Service, s.Compose.Stop)
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return AppStatus{}, err
+	}
+	return s.lifecycle(ctx, ws, in.App, in.Service, s.Compose.Stop)
 }
 
 func (s *Service) lifecycle(ctx context.Context, ws store.Workspace, app, svc string, op composeOp) (AppStatus, error) {
@@ -66,7 +74,11 @@ func (s *Service) Delete(ctx context.Context, p Principal, in DeleteInput) (res 
 	if in.Confirm != in.App {
 		return DeleteResult{}, validationError("confirm", "confirm must equal the app name")
 	}
-	if err := s.deleteApp(ctx, p.Workspace, in.App); err != nil {
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return DeleteResult{}, err
+	}
+	if err := s.deleteApp(ctx, ws, in.App); err != nil {
 		return DeleteResult{}, err
 	}
 	return DeleteResult{App: in.App, Deleted: true}, nil

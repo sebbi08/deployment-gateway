@@ -11,6 +11,7 @@ import (
 
 	"github.com/sebbi08/deployment-gateway/internal/dockerx"
 	"github.com/sebbi08/deployment-gateway/internal/service"
+	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
 	"github.com/sebbi08/deployment-gateway/internal/stack"
 	"github.com/sebbi08/deployment-gateway/internal/store"
 	"github.com/sebbi08/deployment-gateway/internal/tmpl"
@@ -102,7 +103,7 @@ func TestAppsStopAndDelete(t *testing.T) {
 	e.do("POST", "/api/admin/workspaces", workspaceBody("alice"), c)
 	ws, _ := e.st.GetWorkspaceByName(context.Background(), "alice")
 	st := stack.Stack{Services: map[string]stack.Service{"web": {Image: "nginx:1.27.0"}}}
-	if _, err := e.svc.Deploy(context.Background(), service.Principal{Workspace: ws, TokenID: 1}, service.DeployInput{App: "shop", Stack: st}); err != nil {
+	if _, err := e.svc.Deploy(context.Background(), servicetest.Principal(t, e.svc, e.st, ws.Name, ""), service.DeployInput{App: "shop", Stack: st}); err != nil {
 		t.Fatal(err)
 	}
 	if w := e.do("POST", "/api/admin/workspaces/alice/apps/shop/stop", nil, c); w.Code != http.StatusNoContent {

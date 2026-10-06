@@ -79,11 +79,7 @@ func (h *harness) workspace(name string, start, end int) service.Principal {
 
 func (h *harness) principal(name string) service.Principal {
 	h.t.Helper()
-	w, err := h.st.GetWorkspaceByName(h.ctx, name)
-	if err != nil {
-		h.t.Fatal(err)
-	}
-	return service.Principal{Workspace: w, TokenID: 1, ClientIP: "203.0.113.1"}
+	return servicetest.Principal(h.t, h.svc, h.st, name, "203.0.113.1")
 }
 
 func mustStack(t *testing.T, raw string) stack.Stack {

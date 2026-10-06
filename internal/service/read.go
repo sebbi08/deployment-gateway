@@ -25,7 +25,10 @@ var guidance = []string{
 
 func (s *Service) Whoami(ctx context.Context, p Principal) (res WhoamiResult, err error) {
 	defer s.track(ctx, p, "whoami", nil, &err, time.Now())
-	ws := p.Workspace
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return WhoamiResult{}, err
+	}
 	u, err := s.Store.WorkspaceUsage(ctx, ws.ID, "")
 	if err != nil {
 		return WhoamiResult{}, err
@@ -48,7 +51,11 @@ func (s *Service) Whoami(ctx context.Context, p Principal) (res WhoamiResult, er
 
 func (s *Service) ListTemplates(ctx context.Context, p Principal) (res TemplatesResult, err error) {
 	defer s.track(ctx, p, "list_templates", nil, &err, time.Now())
-	granted, err := s.Store.GrantedTemplates(ctx, p.Workspace.ID)
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return TemplatesResult{}, err
+	}
+	granted, err := s.Store.GrantedTemplates(ctx, ws.ID)
 	if err != nil {
 		return TemplatesResult{}, err
 	}
@@ -61,7 +68,11 @@ func (s *Service) ListTemplates(ctx context.Context, p Principal) (res Templates
 
 func (s *Service) List(ctx context.Context, p Principal) (res ListResult, err error) {
 	defer s.track(ctx, p, "list", nil, &err, time.Now())
-	apps, err := s.appViews(ctx, p.Workspace)
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return ListResult{}, err
+	}
+	apps, err := s.appViews(ctx, ws)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -102,7 +113,10 @@ func (s *Service) appViews(ctx context.Context, ws store.Workspace) ([]AppView, 
 
 func (s *Service) Logs(ctx context.Context, p Principal, in LogsInput) (res LogsResult, err error) {
 	defer s.track(ctx, p, "logs", in, &err, time.Now())
-	ws := p.Workspace
+	ws, err := s.current(ctx, p)
+	if err != nil {
+		return LogsResult{}, err
+	}
 	if _, err = s.ownedApp(ctx, ws, in.App); err != nil {
 		return LogsResult{}, err
 	}

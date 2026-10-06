@@ -64,7 +64,7 @@ func (a *Authenticator) Verify(ctx context.Context, token, ip string) (service.P
 	if err := a.Store.TouchToken(ctx, t.ID); err != nil {
 		return service.Principal{}, err
 	}
-	return service.Principal{Workspace: ws, TokenID: t.ID, ClientIP: ip}, nil
+	return service.Principal{Workspace: ws, TokenID: t.ID, TokenHash: auth.HashToken(token), ClientIP: ip}, nil
 }
 
 // fail counts a failed attempt and logs it, unless the IP is already blocked.
