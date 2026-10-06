@@ -243,7 +243,7 @@ Output is marshalled with `gopkg.in/yaml.v3` from typed structs (never string co
 - Deploy: `pull`, then `up -d --pull never --remove-orphans --wait --wait-timeout <DEPLOY_TIMEOUT>`.
 - Other: `down -v --remove-orphans` (delete; `-v` removes anonymous volumes created by an image's `VOLUME` instruction), `restart [svc]`, `stop [svc]`. Logs and status via Docker SDK, not compose.
 - Process group killed on context timeout.
-- Concurrency: per-app mutex; global semaphore `DEPLOY_CONCURRENCY` (default 1).
+- Concurrency: per-app mutex; global semaphore `DEPLOY_CONCURRENCY` (default 1). Each workspace has at most one compose operation waiting for the global semaphore, so one tenant cannot queue all others behind its operations. The wait is bounded by `DEPLOY_TIMEOUT`; after that the operation fails with "the gateway is busy" and changes nothing.
 - Deploy flow: validate → quota → render to `docker-compose.next.yml` → verify → `pull` (of next) → image-label check → re-check quota/ports and commit the reservation and port claims → rotate (`current → prev`, `next → current`) → `up` → runtime inspect → every planned service must have a running container, healthy if it has a healthcheck (compose's exit code alone is not trusted). A failure before the commit changes no DB state and leaves the running deployment and its reservation untouched (a first deploy leaves no app record). On `up` failure, the app keeps the larger of its previous and new memory/CPU reservation until a deploy succeeds, because containers with the previous limits may still run; return the error plus the last 50 log lines of failing services, and state that `docker-compose.prev.yml` is available.
 
 ## 12. Agent tools / API

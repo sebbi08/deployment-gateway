@@ -90,7 +90,7 @@ func (s *Service) deleteApp(ctx context.Context, ws store.Workspace, app string)
 	file := s.composeFile(ws.Name, app)
 	if _, statErr := os.Stat(file); statErr == nil {
 		if out, err := s.Compose.Down(ctx, file, names.Project(ws.Name, app)); err != nil {
-			return &Error{Code: CodeDeployFailed, Message: "compose down failed: " + s.sanitize(ws.Name, out), detail: out}
+			return &Error{Code: CodeDeployFailed, Message: err.Error() + "\n" + s.sanitize(ws.Name, out), detail: out}
 		}
 	}
 	leftovers, err := s.Docker.ProjectContainers(ctx, ws.Name, app)

@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -21,13 +22,21 @@ type Options struct {
 	DockerHost   string
 	Timeout      time.Duration
 	Concurrency  int
+	// QueueTimeout bounds the wait for a compose slot (default: Timeout).
+	QueueTimeout time.Duration
 }
+
+// ErrBusy is returned when no compose slot became free within QueueTimeout.
+var ErrBusy = errors.New("the gateway is busy with other operations; retry later")
 
 type Runner struct {
 	opts  Options
 	sem   chan struct{}
 	mu    sync.Mutex
 	locks map[string]bool
+	// wsQueues lets each workspace have at most one operation waiting for
+	// the global slot, so one tenant cannot queue all others behind it.
+	wsQueues map[string]chan struct{}
 }
 
 func New(o Options) *Runner {
@@ -37,7 +46,10 @@ func New(o Options) *Runner {
 	if o.DockerHost == "" {
 		o.DockerHost = "unix:///var/run/docker.sock"
 	}
-	return &Runner{opts: o, sem: make(chan struct{}, o.Concurrency), locks: map[string]bool{}}
+	if o.QueueTimeout <= 0 {
+		o.QueueTimeout = o.Timeout
+	}
+	return &Runner{opts: o, sem: make(chan struct{}, o.Concurrency), locks: map[string]bool{}, wsQueues: map[string]chan struct{}{}}
 }
 
 // TryLock takes a non-blocking per-app lock. The returned unlock is idempotent.
@@ -89,13 +101,51 @@ func withService(cmd, service string) []string {
 	return []string{cmd, service}
 }
 
-func (r *Runner) run(ctx context.Context, file, project string, args ...string) (string, error) {
+// workspaceQueue returns the one-slot queue of the project's workspace
+// (project names are dg-<ws>-<app>; workspace names contain no hyphen).
+func (r *Runner) workspaceQueue(project string) chan struct{} {
+	ws, _, _ := strings.Cut(strings.TrimPrefix(project, "dg-"), "-")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	q, ok := r.wsQueues[ws]
+	if !ok {
+		q = make(chan struct{}, 1)
+		r.wsQueues[ws] = q
+	}
+	return q
+}
+
+// acquire takes the workspace queue and then a global slot, waiting at most
+// QueueTimeout in total.
+func (r *Runner) acquire(ctx context.Context, project, op string) (func(), error) {
+	wait := time.NewTimer(r.opts.QueueTimeout)
+	defer wait.Stop()
+	q := r.workspaceQueue(project)
+	select {
+	case q <- struct{}{}:
+	case <-wait.C:
+		return nil, fmt.Errorf("compose %s: %w", op, ErrBusy)
+	case <-ctx.Done():
+		return nil, fmt.Errorf("compose %s: %w", op, ctx.Err())
+	}
 	select {
 	case r.sem <- struct{}{}:
+		return func() { <-r.sem; <-q }, nil
+	case <-wait.C:
+		<-q
+		return nil, fmt.Errorf("compose %s: %w", op, ErrBusy)
 	case <-ctx.Done():
-		return "", fmt.Errorf("compose %s: %w", args[0], ctx.Err())
+		<-q
+		return nil, fmt.Errorf("compose %s: %w", op, ctx.Err())
 	}
-	defer func() { <-r.sem }()
+}
+
+func (r *Runner) run(ctx context.Context, file, project string, args ...string) (string, error) {
+	release, err := r.acquire(ctx, project, args[0])
+	if err != nil {
+		return "", err
+	}
+	defer release()
 
 	ctx, cancel := context.WithTimeout(ctx, r.opts.Timeout+30*time.Second)
 	defer cancel()
@@ -115,7 +165,7 @@ func (r *Runner) run(ctx context.Context, file, project string, args ...string) 
 	cmd.WaitDelay = 5 * time.Second
 	buf := &tailBuffer{max: 64 << 10}
 	cmd.Stdout, cmd.Stderr = buf, buf
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		return buf.String(), fmt.Errorf("compose %s timed out", args[0])
 	}

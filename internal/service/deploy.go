@@ -75,13 +75,16 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		msg := "deployment rejected by runtime security check; containers were removed"
 		// Remove the containers right away: compose down waits for the global
 		// compose slot, possibly behind other tenants' operations.
-		if err := s.removeAppContainers(bg, ws.Name, app); err != nil {
-			detail += " | direct container removal failed: " + err.Error()
+		removeErr := s.removeAppContainers(bg, ws.Name, app)
+		if removeErr != nil {
+			detail += " | direct container removal failed: " + removeErr.Error()
 		}
 		downOut, downErr := s.Compose.Down(bg, file, project)
 		if downErr != nil {
 			detail += " | compose down failed: " + downErr.Error()
-			msg = "deployment rejected by runtime security check; removing containers failed - an administrator must intervene"
+			if removeErr != nil {
+				msg = "deployment rejected by runtime security check; removing containers failed - an administrator must intervene"
+			}
 		}
 		_ = s.Store.RecordDeploy(bg, appRec.ID, CodeSecurity)
 		return AppStatus{}, &Error{Code: CodeSecurity, Message: msg, detail: detail + " | " + downOut, critical: true}

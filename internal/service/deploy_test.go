@@ -326,3 +326,29 @@ func TestDeployFailedUpStillChecksOldContainersInvariants(t *testing.T) {
 		t.Fatalf("privileged pre-existing container: want security_violation, got %v", err)
 	}
 }
+
+// A busy compose slot must not turn a successful direct removal into an
+// "administrator must intervene" alarm.
+func TestDeployViolationReportsRemovalWhenComposeDownIsBusy(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	h.compose.AfterUp = func() {
+		h.docker.MutateFacts("alice-shop-web", func(f *dockerx.Facts) { f.Privileged = true })
+	}
+	h.compose.DownErr = errors.New("compose down: the gateway is busy with other operations; retry later")
+	_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+	if code(err) != service.CodeSecurity || strings.Contains(err.Error(), "administrator must intervene") || len(h.docker.Containers) != 0 {
+		t.Fatalf("got %v with %d containers left", err, len(h.docker.Containers))
+	}
+}
+
+func TestDeleteReportsBusyComposeSlot(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	h.compose.DownErr = errors.New("compose down: the gateway is busy with other operations; retry later")
+	_, err := h.svc.Delete(h.ctx, p, service.DeleteInput{App: "shop", Confirm: "shop"})
+	if err == nil || !strings.Contains(err.Error(), "retry later") {
+		t.Fatalf("delete error must explain the busy slot: %v", err)
+	}
+}

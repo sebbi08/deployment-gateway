@@ -2,9 +2,12 @@ package runner
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -124,5 +127,49 @@ func TestTryLock(t *testing.T) {
 		t.Fatal("lock not released")
 	} else {
 		u3()
+	}
+}
+
+// One workspace queueing many operations must not push another workspace's
+// operation behind all of them: each workspace has at most one operation
+// waiting for the global slot.
+func TestRunnerIsFairAcrossWorkspaces(t *testing.T) {
+	order := filepath.Join(t.TempDir(), "order")
+	bin, _ := fakeCompose(t, `echo "$4" >> `+order+`; sleep 0.3`)
+	r := New(Options{Bin: bin, Timeout: time.Minute, Concurrency: 1})
+	var wg sync.WaitGroup
+	start := func(project string, delay time.Duration) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			time.Sleep(delay)
+			if _, err := r.Stop(context.Background(), "/nonexistent/x.yml", project, ""); err != nil {
+				t.Error(err)
+			}
+		}()
+	}
+	start("dg-alice-a1", 0)
+	start("dg-alice-a2", 20*time.Millisecond)
+	start("dg-alice-a3", 40*time.Millisecond)
+	start("dg-bob-b1", 80*time.Millisecond)
+	wg.Wait()
+	got := strings.Fields(read(t, order))
+	if slices.Index(got, "dg-bob-b1") > slices.Index(got, "dg-alice-a3") {
+		t.Fatalf("bob waited behind all of alice's operations: %v", got)
+	}
+}
+
+func TestRunnerQueueWaitIsBounded(t *testing.T) {
+	bin, _ := fakeCompose(t, "sleep 2")
+	r := New(Options{Bin: bin, Timeout: time.Minute, Concurrency: 1, QueueTimeout: 200 * time.Millisecond})
+	go r.Stop(context.Background(), "/nonexistent/x.yml", "dg-alice-a1", "")
+	time.Sleep(50 * time.Millisecond)
+	begin := time.Now()
+	_, err := r.Stop(context.Background(), "/nonexistent/x.yml", "dg-bob-b1", "")
+	if !errors.Is(err, ErrBusy) {
+		t.Fatalf("want ErrBusy, got %v", err)
+	}
+	if d := time.Since(begin); d > time.Second {
+		t.Fatalf("waited %v, want about 200ms", d)
 	}
 }

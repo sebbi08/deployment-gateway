@@ -29,6 +29,7 @@ type FakeCompose struct {
 	PullOut string
 	UpErr   error
 	UpOut   string
+	DownErr error
 	// ObserveCtx, if set, is called with the operation name ("pull", "up",
 	// "down", "restart", "stop") and the context the operation received.
 	ObserveCtx func(op string, ctx context.Context)
@@ -83,6 +84,9 @@ func (f *FakeCompose) Up(ctx context.Context, file, project string) (string, err
 func (f *FakeCompose) Down(ctx context.Context, _, project string) (string, error) {
 	f.record("down " + project)
 	f.observe("down", ctx)
+	if f.DownErr != nil {
+		return "", f.DownErr
+	}
 	if f.OnDown != nil {
 		f.OnDown(project)
 	}
