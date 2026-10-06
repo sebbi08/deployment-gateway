@@ -13,9 +13,9 @@ type composeService struct {
 	Image         string                    `yaml:"image"`
 	ContainerName string                    `yaml:"container_name"`
 	Hostname      string                    `yaml:"hostname"`
-	Command       []string                  `yaml:"command,omitempty"`
-	Entrypoint    []string                  `yaml:"entrypoint,omitempty"`
-	Environment   map[string]string         `yaml:"environment,omitempty"`
+	Command       []qstr                    `yaml:"command,omitempty"`
+	Entrypoint    []qstr                    `yaml:"entrypoint,omitempty"`
+	Environment   map[string]qstr           `yaml:"environment,omitempty"`
 	User          string                    `yaml:"user,omitempty"`
 	Restart       string                    `yaml:"restart"`
 	CapDrop       []string                  `yaml:"cap_drop"`
@@ -32,7 +32,7 @@ type composeService struct {
 	Healthcheck   *composeHealth            `yaml:"healthcheck,omitempty"`
 	DependsOn     map[string]composeDepends `yaml:"depends_on,omitempty"`
 	Networks      []string                  `yaml:"networks"`
-	Labels        map[string]string         `yaml:"labels"`
+	Labels        map[string]qstr           `yaml:"labels"`
 }
 
 type composeLogging struct {
@@ -59,9 +59,9 @@ type composePort struct {
 }
 
 type composeHealth struct {
-	Test     []string `yaml:"test"`
-	Interval string   `yaml:"interval"`
-	Retries  int      `yaml:"retries"`
+	Test     []qstr `yaml:"test"`
+	Interval string `yaml:"interval"`
+	Retries  int    `yaml:"retries"`
 }
 
 type composeDepends struct {

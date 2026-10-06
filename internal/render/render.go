@@ -62,9 +62,9 @@ func Render(in Input) (Output, error) {
 			Image:         svc.Image,
 			ContainerName: id,
 			Hostname:      id,
-			Command:       escapeAll(svc.Command),
-			Entrypoint:    escapeAll(svc.Entrypoint),
-			Environment:   escapeMap(svc.Environment),
+			Command:       qstrs(escapeAll(svc.Command)),
+			Entrypoint:    qstrs(escapeAll(svc.Entrypoint)),
+			Environment:   qmap(escapeMap(svc.Environment)),
 			User:          svc.User,
 			Restart:       "unless-stopped",
 			CapDrop:       []string{"ALL"},
@@ -100,7 +100,7 @@ func Render(in Input) (Output, error) {
 			if retries == 0 {
 				retries = 3
 			}
-			cs.Healthcheck = &composeHealth{Test: append([]string{"CMD"}, escapeAll(hc.Command)...), Interval: interval, Retries: retries}
+			cs.Healthcheck = &composeHealth{Test: qstrs(append([]string{"CMD"}, escapeAll(hc.Command)...)), Interval: interval, Retries: retries}
 		}
 		if len(svc.DependsOn) > 0 {
 			cs.DependsOn = map[string]composeDepends{}
@@ -136,7 +136,7 @@ func Render(in Input) (Output, error) {
 		labels[names.LabelApp] = app
 		labels[names.LabelService] = svcName
 		labels[names.LabelManaged] = "true"
-		cs.Labels = escapeMap(labels)
+		cs.Labels = qmap(escapeMap(labels))
 		out.Labels[svcName] = labels
 		file.Services[id] = cs
 	}
@@ -144,6 +144,9 @@ func Render(in Input) (Output, error) {
 	y, err := yaml.Marshal(file)
 	if err != nil {
 		return Output{}, fmt.Errorf("render: marshal: %w", err)
+	}
+	if err := roundTrip(y, file); err != nil {
+		return Output{}, err
 	}
 	out.YAML = y
 	return out, nil

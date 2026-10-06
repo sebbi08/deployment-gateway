@@ -101,6 +101,10 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 		Workspace: ws.Name, App: app, Stack: st, Templates: templates,
 		Defaults: defaults, DataDir: dataDir, BindIP: ws.PortBindIP,
 	})
+	var fe *render.FieldError
+	if errors.As(err, &fe) {
+		return nil, &Error{Code: CodeValidation, Message: "stack validation failed", Fields: stack.Errors{{Field: fe.Field, Message: fe.Message}}}
+	}
 	if err != nil {
 		return nil, err
 	}

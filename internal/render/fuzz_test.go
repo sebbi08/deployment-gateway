@@ -14,6 +14,9 @@ var seeds = []string{
 	`{"services": {"web": {"image": "ghcr.io/me/shop:1.4.2", "environment": {"A": "${HOME} $$ $"}, "expose": {"template": "public-web", "port": 8080}, "ports": [{"container": 80, "host": 20000}, {"container": 53, "host": 20001, "protocol": "udp"}]}}}`,
 	`{"services": {"db": {"image": "postgres:16.4", "user": "999:999", "volume": {"path": "/var/lib/postgresql/data"}, "writable_rootfs": true, "healthcheck": {"command": ["pg_isready"]}}, "web": {"image": "a:1", "depends_on": ["db"], "command": ["$x"], "entrypoint": ["/bin/$y"], "resources": {"memory": "64m", "cpus": 0.1, "pids": 64}}}}`,
 	`{"services": {"a": {"image": "a:1", "expose": {"template": "internal", "port": 1}}, "b": {"image": "b@sha256:0000000000000000000000000000000000000000000000000000000000000000", "expose": {"template": "internal", "port": 2}}}}`,
+	// Strings yaml.v3 emitted as broken or lossy block scalars before agent
+	// strings were double-quoted; Render's round-trip check must hold.
+	`{"services": {"web": {"image": "a:1", "command": ["sh", "-c", "\nset -e\nnode x\n"], "entrypoint": ["  echo a\n# x"], "environment": {"A": "\tb\n\tc", "B": "<<"}, "healthcheck": {"command": ["\n0"]}}}}`,
 }
 
 func FuzzRenderVerify(f *testing.F) {
@@ -51,6 +54,7 @@ func FuzzRenderVerify(f *testing.F) {
 			Defaults: defaults, DataDir: dataDir, BindIP: "127.0.0.1",
 		})
 		if err != nil {
+			// Includes the round-trip check: every agent string must read back exactly.
 			t.Fatalf("render failed on a valid stack: %v", err)
 		}
 		if err := verify.Verify(out.YAML, policy); err != nil {

@@ -30,23 +30,23 @@ services:
                 create_host_path: false
         healthcheck:
             test:
-                - CMD
-                - pg_isready
+                - "CMD"
+                - "pg_isready"
             interval: 10s
             retries: 5
         networks:
             - dg-alice-shop
         labels:
-            deploy-gateway.app: shop
+            deploy-gateway.app: "shop"
             deploy-gateway.managed: "true"
-            deploy-gateway.service: db
-            deploy-gateway.workspace: alice
+            deploy-gateway.service: "db"
+            deploy-gateway.workspace: "alice"
     alice-shop-web:
         image: ghcr.io/me/shop:1.4.2
         container_name: alice-shop-web
         hostname: alice-shop-web
         environment:
-            GREETING: cost $${HOME} $$5
+            GREETING: "cost $${HOME} $$5"
         restart: unless-stopped
         cap_drop:
             - ALL
@@ -71,10 +71,10 @@ services:
               protocol: tcp
         healthcheck:
             test:
-                - CMD
-                - wget
-                - -qO-
-                - http://localhost:8080/health
+                - "CMD"
+                - "wget"
+                - "-qO-"
+                - "http://localhost:8080/health"
             interval: 30s
             retries: 3
         depends_on:
@@ -84,21 +84,21 @@ services:
             - dg-alice-shop
             - apps
         labels:
-            deploy-gateway.app: shop
+            deploy-gateway.app: "shop"
             deploy-gateway.managed: "true"
-            deploy-gateway.service: web
-            deploy-gateway.workspace: alice
+            deploy-gateway.service: "web"
+            deploy-gateway.workspace: "alice"
             traefik.enable: "true"
-            traefik.http.routers.alice-shop-web.rule: Host(`shop.alice.apps.example.com`)
+            traefik.http.routers.alice-shop-web.rule: "Host(`shop.alice.apps.example.com`)"
             traefik.http.services.alice-shop-web.loadbalancer.server.port: "8080"
-            x.regex: ^/api$$
+            x.regex: "^/api$$"
     alice-shop-worker:
         image: ghcr.io/me/worker:1.0.0
         container_name: alice-shop-worker
         hostname: alice-shop-worker
         command:
-            - run
-            - $$JOB
+            - "run"
+            - "$$JOB"
         restart: unless-stopped
         cap_drop:
             - ALL
@@ -122,10 +122,10 @@ services:
         networks:
             - dg-alice-shop
         labels:
-            deploy-gateway.app: shop
+            deploy-gateway.app: "shop"
             deploy-gateway.managed: "true"
-            deploy-gateway.service: worker
-            deploy-gateway.workspace: alice
+            deploy-gateway.service: "worker"
+            deploy-gateway.workspace: "alice"
 networks:
     apps:
         name: apps
