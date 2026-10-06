@@ -301,3 +301,22 @@ func TestForwardedProxiesDoNotGrantProxyModeTrust(t *testing.T) {
 		t.Fatalf("peer only in ForwardedProxies got %d, want 403", w.Code)
 	}
 }
+
+// The __Host- prefix makes browsers refuse the cookie from any other site
+// (e.g. an agent app on a sibling subdomain), and a shadowing cookie with
+// the same name must not hide a valid session.
+func TestSessionCookieCannotBeShadowed(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	w := e.do("POST", "/api/admin/login", map[string]string{"password": "correct horse battery"})
+	cs := w.Result().Cookies()
+	if len(cs) != 1 || cs[0].Name != "__Host-dg_admin" || cs[0].Path != "/" || !cs[0].Secure || cs[0].Domain != "" {
+		t.Fatalf("session cookie = %+v, want __Host-dg_admin, Secure, Path=/, host-only", cs)
+	}
+	valid := cs[0].Value
+	w = e.do("GET", "/api/admin/me", nil, func(r *http.Request) {
+		r.Header.Add("Cookie", "__Host-dg_admin=planted-by-agent-app; __Host-dg_admin="+valid)
+	})
+	if w.Code != http.StatusOK {
+		t.Fatalf("valid session hidden by a shadowing cookie: %d", w.Code)
+	}
+}

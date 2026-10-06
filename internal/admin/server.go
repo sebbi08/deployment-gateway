@@ -25,7 +25,10 @@ import (
 	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
-const cookieName = "dg_admin"
+// The __Host- prefix makes browsers accept the cookie only host-only,
+// Secure and with Path=/, so no other site (such as an agent app on a
+// sibling subdomain) can set or shadow it.
+const cookieName = "__Host-dg_admin"
 
 type Options struct {
 	Svc            *service.Service
@@ -127,10 +130,11 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 			}
 			who = "proxy:" + who
 		} else {
-			c, err := r.Cookie(cookieName)
 			var ok bool
-			if err == nil {
-				who, ok = s.sessions.Lookup(c.Value)
+			for _, c := range r.CookiesNamed(cookieName) {
+				if who, ok = s.sessions.Lookup(c.Value); ok {
+					break
+				}
 			}
 			if !ok {
 				writeJSON(w, http.StatusUnauthorized, apiError{Code: "login_required", Message: "login required"})
@@ -184,7 +188,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	if c, err := r.Cookie(cookieName); err == nil {
+	for _, c := range r.CookiesNamed(cookieName) {
 		s.sessions.Delete(c.Value)
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: "", Path: "/", MaxAge: -1, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
