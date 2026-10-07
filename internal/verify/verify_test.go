@@ -263,3 +263,20 @@ func TestEveryForbiddenKeyIsRejected(t *testing.T) {
 		}
 	}
 }
+
+// Log rotation bounds what a container can write to the host disk; verify
+// checks the values, not only the keys.
+func TestLoggingOptionValuesAreChecked(t *testing.T) {
+	doc, p := setup(t)
+	for _, bad := range []string{
+		`options: {max-size: 10g, max-file: "3"}`,
+		`options: {max-size: 10m, max-file: "300"}`,
+		`options: {max-size: 10m}`,
+		`options: {}`,
+	} {
+		d := strings.Replace(doc, `options: {max-size: 10m, max-file: "3"}`, bad, 1)
+		if err := Verify([]byte(d), p); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+}

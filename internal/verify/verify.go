@@ -239,6 +239,10 @@ func checkLogging(key string, raw any, v *Violations) {
 			v.addf("%s: logging option %q not allowed", key, k)
 		}
 	}
+	// The rotation limits bound what a container can write to the host disk.
+	if opts["max-size"] != "10m" || opts["max-file"] != "3" {
+		v.addf("%s: logging options must be max-size 10m and max-file 3", key)
+	}
 	for _, k := range sortedKeys(m) {
 		if k != "driver" && k != "options" {
 			v.addf("%s: logging key %q not allowed", key, k)

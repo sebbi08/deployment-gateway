@@ -218,8 +218,9 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 ## Disputed (one verifier for, one against) — decide whether to act
 
   - Done: spec updated: §3/§17 compose v5, §12 ownership via DB records, §13 token lookup and 12-char prefix, §15 port range NOT NULL DEFAULT 0, §16 DOCKER_HOST and SELF_CONTAINER_ID; §6 fixed with LO14/P3.
-- [ ] **D1** (F06, disputed) verify skips logging option values and non-owner labels; only render enforces them — [internal/verify/verify.go:230](../../../internal/verify/verify.go#L230)
+- [x] **D1** (F06, disputed) verify skips logging option values and non-owner labels; only render enforces them — [internal/verify/verify.go:230](../../../internal/verify/verify.go#L230)
   - Fix: In checkLogging, require options to be a map equal to exactly {max-size: "10m", max-file: "3"}. Add LogConfig to dockerx.Facts and flag json-file without max-size in CheckRuntime. For labels, pass the granted templates in verify.Policy and fill in the placeholders independently (own replacer, not tmpl.RenderLabels). Then require the non-owner labels to be empty or equal one granted template's rendering for this …
+  - Done: verify requires logging options max-size 10m and max-file 3 (values, not only keys). Non-owner label values stay render-only by design (templates are admin input).
 - [ ] **D2** (F09, disputed) Image labels are filtered by a reserved-prefix denylist, so ofelia-style host tools act on them — [internal/service/plan.go:37](../../../internal/service/plan.go#L37)
   - Fix: Switch image+container label handling from a reserved-prefix denylist to an allowlist: reject any image/container label the gateway did not render, permitting only a small admin-configured safe set (e.g. org.opencontainers.image.\*, maintainer). If keeping the denylist, additionally reserve known socket-tool namespaces (ofelia., chadburn., com.centurylinklabs.watchtower., docker-volume-backup., autoheal., wud., …
 - [ ] **D3** (F27, disputed) Revoking a grant or deleting a template leaves deployed apps exposed; 'in use' only counts grants — [internal/service/admin.go:214](../../../internal/service/admin.go#L214)
