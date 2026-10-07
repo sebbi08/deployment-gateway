@@ -172,6 +172,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		svc.FileOwner = &service.Owner{UID: cfg.FileUID, GID: cfg.FileGID}
 		logger.Info("FILE_OWNER: workspace folders and compose files stay owned by root; the group gets read access", "gid", cfg.FileGID)
 	}
+	if err := svc.RecoverInterrupted(ctx); err != nil {
+		logger.Error("checking deploys interrupted by the last stop failed", "err", err)
+	}
 	warnMissingNetworks(ctx, st, dc, logger)
 	if orphans, err := svc.Orphans(ctx); err == nil && len(orphans) > 0 {
 		logger.Warn("orphaned gateway containers found; see the admin UI", "count", len(orphans))

@@ -236,3 +236,43 @@ func (s *Store) AppHosts(ctx context.Context) (map[string][]string, error) {
 	}
 	return out, rows.Err()
 }
+
+// AppRef is an app with the name of its workspace.
+type AppRef struct {
+	Workspace string
+	App       App
+}
+
+// AppsWithResult returns every app whose last deploy result is result.
+func (s *Store) AppsWithResult(ctx context.Context, result string) ([]AppRef, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT w.name, a.id FROM apps a JOIN workspaces w ON w.id = a.workspace_id WHERE a.last_deploy_result=?`, result)
+	if err != nil {
+		return nil, err
+	}
+	type ref struct {
+		ws string
+		id int64
+	}
+	var refs []ref
+	for rows.Next() {
+		var r ref
+		if err := rows.Scan(&r.ws, &r.id); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		refs = append(refs, r)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]AppRef, 0, len(refs))
+	for _, r := range refs {
+		a, err := scanApp(s.db.QueryRowContext(ctx, `SELECT `+appCols+` FROM apps WHERE id=?`, r.id))
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, AppRef{Workspace: r.ws, App: a})
+	}
+	return out, nil
+}

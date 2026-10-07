@@ -13,7 +13,7 @@ import (
 type AuditEntry struct {
 	ID         int64
 	Time       time.Time
-	ActorType  string // agent | admin
+	ActorType  string // agent | admin | system
 	Actor      string
 	Workspace  string
 	TokenID    int64 // 0 = none
