@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -48,5 +49,27 @@ func TestAuditParamsAreNotHTMLEscaped(t *testing.T) {
 	h.svc.Validate(h.ctx, p, service.DeployInput{App: "shop", Stack: s})
 	if params := lastAuditParams(t, h, "validate"); !strings.Contains(params, "a<b>&c") {
 		t.Fatalf("params HTML-escaped: %s", params)
+	}
+}
+
+// A gateway killed mid-call (SIGKILL on upgrade, OOM) must still leave a
+// trace: the audit row is written when the call starts and completed when
+// it ends.
+func TestAuditRowWrittenAtCallStart(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	var during []store.AuditEntry
+	h.compose.ObserveCtx = func(op string, _ context.Context) {
+		if op == "pull" {
+			during, _ = h.st.ListAudit(h.ctx, store.AuditFilter{Action: "deploy"})
+		}
+	}
+	deployExample(t, h, p)
+	if len(during) != 1 || during[0].Result != "started" {
+		t.Fatalf("audit during the deploy = %+v, want one 'started' row", during)
+	}
+	after, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Action: "deploy"})
+	if len(after) != 1 || after[0].Result != "ok" || after[0].ID != during[0].ID {
+		t.Fatalf("audit after the deploy = %+v, want the same row completed as ok", after)
 	}
 }

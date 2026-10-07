@@ -5,7 +5,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"time"
 
 	"github.com/sebbi08/deployment-gateway/internal/names"
 	"github.com/sebbi08/deployment-gateway/internal/store"
@@ -14,7 +13,7 @@ import (
 type composeOp func(ctx context.Context, file, project, service string) (string, error)
 
 func (s *Service) Restart(ctx context.Context, p Principal, in ServiceInput) (res AppStatus, err error) {
-	defer s.track(ctx, p, "restart", in, &err, time.Now())
+	defer s.track(ctx, p, "restart", in, &err)()
 	ws, err := s.current(ctx, p)
 	if err != nil {
 		return AppStatus{}, err
@@ -23,7 +22,7 @@ func (s *Service) Restart(ctx context.Context, p Principal, in ServiceInput) (re
 }
 
 func (s *Service) Stop(ctx context.Context, p Principal, in ServiceInput) (res AppStatus, err error) {
-	defer s.track(ctx, p, "stop", in, &err, time.Now())
+	defer s.track(ctx, p, "stop", in, &err)()
 	ws, err := s.current(ctx, p)
 	if err != nil {
 		return AppStatus{}, err
@@ -72,7 +71,7 @@ func (s *Service) lifecycle(ctx context.Context, ws store.Workspace, app, svc st
 }
 
 func (s *Service) Delete(ctx context.Context, p Principal, in DeleteInput) (res DeleteResult, err error) {
-	defer s.track(ctx, p, "delete", in, &err, time.Now())
+	defer s.track(ctx, p, "delete", in, &err)()
 	if in.Confirm != in.App {
 		return DeleteResult{}, validationError("confirm", "confirm must equal the app name")
 	}

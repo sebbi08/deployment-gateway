@@ -36,14 +36,30 @@ type AuditFilter struct {
 }
 
 func (s *Store) InsertAudit(ctx context.Context, e AuditEntry) error {
+	_, err := s.InsertAuditID(ctx, e)
+	return err
+}
+
+// InsertAuditID inserts an audit row and returns its ID.
+func (s *Store) InsertAuditID(ctx context.Context, e AuditEntry) (int64, error) {
 	var tokenID any
 	if e.TokenID != 0 {
 		tokenID = e.TokenID
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO audit (ts, actor_type, actor, workspace, token_id, action, params_json,
+	res, err := s.db.ExecContext(ctx, `INSERT INTO audit (ts, actor_type, actor, workspace, token_id, action, params_json,
 		result, error, severity, duration_ms, client_ip) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		e.Time.Unix(), e.ActorType, e.Actor, e.Workspace, tokenID, e.Action, e.Params, e.Result, e.Error,
 		e.Severity, e.DurationMS, e.ClientIP)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// FinishAudit completes a row written at call start.
+func (s *Store) FinishAudit(ctx context.Context, id int64, e AuditEntry) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE audit SET result=?, error=?, severity=?, duration_ms=? WHERE id=?`,
+		e.Result, e.Error, e.Severity, e.DurationMS, id)
 	return err
 }
 

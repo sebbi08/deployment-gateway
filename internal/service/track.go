@@ -14,14 +14,61 @@ import (
 	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
-// track writes one audit row per agent call. Non-*Error errors are replaced
-// by a generic internal error so internals never leak to agents.
-func (s *Service) track(ctx context.Context, p Principal, action string, params any, errp *error, start time.Time) {
+// track writes one audit row per agent call: when the call starts (result
+// "started", so a killed gateway still leaves a trace) and completed by the
+// returned function. Use as: defer s.track(ctx, p, action, params, &err)().
+// Non-*Error errors are replaced by a generic internal error so internals
+// never leak to agents.
+func (s *Service) track(ctx context.Context, p Principal, action string, params any, errp *error) func() {
 	e := store.AuditEntry{
-		Time: start, ActorType: "agent", Actor: fmt.Sprintf("token:%d", p.TokenID), Workspace: p.Workspace.Name,
+		Time: time.Now(), ActorType: "agent", Actor: fmt.Sprintf("token:%d", p.TokenID), Workspace: p.Workspace.Name,
 		TokenID: p.TokenID, Action: action, Params: redact(params), ClientIP: p.ClientIP,
 	}
-	s.finish(ctx, &e, errp, start)
+	return s.begin(ctx, e, errp)
+}
+
+func (s *Service) adminTrack(ctx context.Context, actor, workspace, action string, params any, errp *error) func() {
+	e := store.AuditEntry{Time: time.Now(), ActorType: "admin", Actor: actor, Workspace: workspace, Action: action, Params: redact(params)}
+	return s.begin(ctx, e, errp)
+}
+
+func (s *Service) begin(ctx context.Context, e store.AuditEntry, errp *error) func() {
+	e.Result, e.Severity = "started", "info"
+	id, err := s.Store.InsertAuditID(context.WithoutCancel(ctx), e)
+	if err != nil {
+		s.Logger.Error("audit write failed", "err", err, "action", e.Action)
+	}
+	return func() { s.finish(ctx, id, &e, errp) }
+}
+
+func (s *Service) finish(ctx context.Context, id int64, e *store.AuditEntry, errp *error) {
+	e.DurationMS = time.Since(e.Time).Milliseconds()
+	e.Result, e.Severity = "ok", "info"
+	if *errp != nil {
+		var se *Error
+		if !errors.As(*errp, &se) {
+			se = &Error{Code: CodeInternal, Message: "internal error", detail: (*errp).Error()}
+			*errp = se
+		}
+		e.Result, e.Error, e.Severity = se.Code, se.Message, "warn"
+		if se.detail != "" {
+			e.Error += " | " + se.detail
+		}
+		if se.critical {
+			e.Severity = "critical"
+			s.Logger.Error("security violation", "workspace", e.Workspace, "action", e.Action, "error", e.Error)
+		}
+	}
+	ctx = context.WithoutCancel(ctx)
+	var err error
+	if id != 0 {
+		err = s.Store.FinishAudit(ctx, id, *e)
+	} else {
+		err = s.Store.InsertAudit(ctx, *e)
+	}
+	if err != nil {
+		s.Logger.Error("audit write failed", "err", err, "action", e.Action)
+	}
 }
 
 // AuditRejected records an agent call that was rejected before it reached
@@ -41,34 +88,6 @@ func (s *Service) AuditRejected(ctx context.Context, p Principal, action string,
 	}
 	if err := s.Store.InsertAudit(context.WithoutCancel(ctx), e); err != nil {
 		s.Logger.Error("audit write failed", "err", err, "action", action)
-	}
-}
-
-func (s *Service) adminTrack(ctx context.Context, actor, workspace, action string, params any, errp *error, start time.Time) {
-	e := store.AuditEntry{Time: start, ActorType: "admin", Actor: actor, Workspace: workspace, Action: action, Params: redact(params)}
-	s.finish(ctx, &e, errp, start)
-}
-
-func (s *Service) finish(ctx context.Context, e *store.AuditEntry, errp *error, start time.Time) {
-	e.DurationMS = time.Since(start).Milliseconds()
-	e.Result, e.Severity = "ok", "info"
-	if *errp != nil {
-		var se *Error
-		if !errors.As(*errp, &se) {
-			se = &Error{Code: CodeInternal, Message: "internal error", detail: (*errp).Error()}
-			*errp = se
-		}
-		e.Result, e.Error, e.Severity = se.Code, se.Message, "warn"
-		if se.detail != "" {
-			e.Error += " | " + se.detail
-		}
-		if se.critical {
-			e.Severity = "critical"
-			s.Logger.Error("security violation", "workspace", e.Workspace, "action", e.Action, "error", e.Error)
-		}
-	}
-	if err := s.Store.InsertAudit(context.WithoutCancel(ctx), *e); err != nil {
-		s.Logger.Error("audit write failed", "err", err, "action", e.Action)
 	}
 }
 

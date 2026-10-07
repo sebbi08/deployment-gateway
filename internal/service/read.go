@@ -26,7 +26,7 @@ var guidance = []string{
 }
 
 func (s *Service) Whoami(ctx context.Context, p Principal) (res WhoamiResult, err error) {
-	defer s.track(ctx, p, "whoami", nil, &err, time.Now())
+	defer s.track(ctx, p, "whoami", nil, &err)()
 	ws, err := s.current(ctx, p)
 	if err != nil {
 		return WhoamiResult{}, err
@@ -52,7 +52,7 @@ func (s *Service) Whoami(ctx context.Context, p Principal) (res WhoamiResult, er
 }
 
 func (s *Service) ListTemplates(ctx context.Context, p Principal) (res TemplatesResult, err error) {
-	defer s.track(ctx, p, "list_templates", nil, &err, time.Now())
+	defer s.track(ctx, p, "list_templates", nil, &err)()
 	ws, err := s.current(ctx, p)
 	if err != nil {
 		return TemplatesResult{}, err
@@ -69,7 +69,7 @@ func (s *Service) ListTemplates(ctx context.Context, p Principal) (res Templates
 }
 
 func (s *Service) List(ctx context.Context, p Principal) (res ListResult, err error) {
-	defer s.track(ctx, p, "list", nil, &err, time.Now())
+	defer s.track(ctx, p, "list", nil, &err)()
 	ws, err := s.current(ctx, p)
 	if err != nil {
 		return ListResult{}, err
@@ -114,7 +114,7 @@ func (s *Service) appViews(ctx context.Context, ws store.Workspace) ([]AppView, 
 }
 
 func (s *Service) Logs(ctx context.Context, p Principal, in LogsInput) (res LogsResult, err error) {
-	defer s.track(ctx, p, "logs", in, &err, time.Now())
+	defer s.track(ctx, p, "logs", in, &err)()
 	ws, err := s.current(ctx, p)
 	if err != nil {
 		return LogsResult{}, err

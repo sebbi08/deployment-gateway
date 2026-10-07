@@ -19,7 +19,7 @@ import (
 )
 
 func (s *Service) Validate(ctx context.Context, p Principal, in DeployInput) (res ValidateResult, err error) {
-	defer s.track(ctx, p, "validate", in, &err, time.Now())
+	defer s.track(ctx, p, "validate", in, &err)()
 	ws, err := s.current(ctx, p)
 	if err != nil {
 		return ValidateResult{}, err
@@ -35,7 +35,7 @@ func (s *Service) Validate(ctx context.Context, p Principal, in DeployInput) (re
 }
 
 func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res AppStatus, err error) {
-	defer s.track(ctx, p, "deploy", in, &err, time.Now())
+	defer s.track(ctx, p, "deploy", in, &err)()
 	app := in.App
 	if !names.ValidApp(app) {
 		return AppStatus{}, validationError("app", appRule)
