@@ -350,3 +350,17 @@ func TestProxyModeRejectsIdentityHeaderFromUntrustedPeer(t *testing.T) {
 		t.Fatalf("forged identity header got %d on the API, want 403", w.Code)
 	}
 }
+
+// The login endpoint is reachable without a session; it must not read an
+// unbounded body.
+func TestLoginBodyIsLimited(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	big := `{"password":"` + strings.Repeat("a", 1<<20) + `"}`
+	r := httptest.NewRequest("POST", "/api/admin/login", strings.NewReader(big))
+	r.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "too large") {
+		t.Fatalf("oversize login body got %d %s, want 400 too large", w.Code, w.Body.String())
+	}
+}
