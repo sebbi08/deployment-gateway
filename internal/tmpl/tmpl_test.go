@@ -47,6 +47,8 @@ func TestValidateRejects(t *testing.T) {
 	}{
 		{"bad name", func(t *Template) { t.Name = "Public" }, "name"},
 		{"literal in subdomain", func(t *Template) { t.HostPattern = "app-{{app}}.{{workspace}}.example.com" }, "host_pattern must be"},
+		{"adjacent placeholders", func(t *Template) { t.HostPattern = "{{app}}{{workspace}}.example.com" }, "host_pattern must be"},
+		{"underscore separator", func(t *Template) { t.HostPattern = "{{app}}_{{workspace}}.example.com" }, "host_pattern must be"},
 		{"missing workspace", func(t *Template) { t.HostPattern = "{{app}}.apps.example.com" }, "{{workspace}}"},
 		{"duplicate placeholder", func(t *Template) { t.HostPattern = "{{app}}.{{app}}.{{workspace}}.example.com" }, "more than once"},
 		{"single label suffix", func(t *Template) { t.HostPattern = "{{app}}.{{workspace}}.localhost" }, "at least two labels"},

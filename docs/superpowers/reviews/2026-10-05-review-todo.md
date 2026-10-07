@@ -252,8 +252,10 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 
 ## Test gaps (mutation testing: check can be removed with all tests passing)
 
-- [ ] **T1** No test fails when the host_pattern placeholder-separator rule is weakened (lets two tenants get the same host) — [internal/tmpl/tmpl.go:37](../../../internal/tmpl/tmpl.go#L37)
-- [ ] **T2** MCP tools accept stacks up to the SDK's 4 MiB default; the spec's 128 KB limit (stack.Decode) never runs in production — [internal/mcpserver/mcpserver.go:107](../../../internal/mcpserver/mcpserver.go#L107)
+- [x] **T1** No test fails when the host_pattern placeholder-separator rule is weakened (lets two tenants get the same host) — [internal/tmpl/tmpl.go:37](../../../internal/tmpl/tmpl.go#L37)
+  - Done: tmpl tests reject adjacent placeholders and other separators; verified they fail on the weakened regex.
+- [x] **T2** MCP tools accept stacks up to the SDK's 4 MiB default; the spec's 128 KB limit (stack.Decode) never runs in production — [internal/mcpserver/mcpserver.go:107](../../../internal/mcpserver/mcpserver.go#L107)
+  - Done: covered by TestOversizeBodyRejected (H3/M2).
 - [ ] **T3** No test fails when ProjectContainers drops the workspace or app label filter — [internal/dockerx/client.go:45](../../../internal/dockerx/client.go#L45)
 - [ ] **T4** No test fails when WorkspaceContainers is unfiltered (DeleteWorkspace would remove every host container) — [internal/dockerx/client.go:52](../../../internal/dockerx/client.go#L52)
 - [ ] **T5** No test fails when the runner's own timeout is removed, although every caller detaches its context — [internal/runner/runner.go:100](../../../internal/runner/runner.go#L100)
@@ -261,7 +263,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 - [ ] **T7** No test fails when prepare stops holding the workspace mutex (quota race) — [internal/service/deploy.go:126](../../../internal/service/deploy.go#L126)
 - [ ] **T8** No test fails when ListPortClaims is not scoped to the workspace (cross-tenant leak via whoami) — [internal/store/apps.go:174](../../../internal/store/apps.go#L174)
 - [ ] **T9** No test fails when ListApps is not scoped to the workspace (agent list shows other tenants' apps) — [internal/store/apps.go:67](../../../internal/store/apps.go#L67)
-- [ ] **T10** Default TRUSTED_PROXIES + blocking valid tokens: 10 anonymous requests lock out every agent — [internal/agentauth/agentauth.go:31](../../../internal/agentauth/agentauth.go#L31)
+- [x] **T10** Default TRUSTED_PROXIES + blocking valid tokens: 10 anonymous requests lock out every agent — [internal/agentauth/agentauth.go:31](../../../internal/agentauth/agentauth.go#L31)
+  - Done: covered by TestVerifyValidTokenPassesFromBlockedIP and TestVerifyLogsFailuresAndBlockOnce (H1).
 - [ ] **T11** No test fails when proxy mode accepts a forged identity header from an untrusted peer — [internal/admin/server.go:114](../../../internal/admin/server.go#L114)
 - [ ] **T12** No test fails when admin session IDs become constant or 16-bit — [internal/auth/sessions.go:30](../../../internal/auth/sessions.go#L30)
 - [ ] **T13** No test fails when the token hash covers only the displayed 12-char prefix — [internal/auth/token.go:26](../../../internal/auth/token.go#L26)
