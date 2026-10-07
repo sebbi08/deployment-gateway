@@ -260,7 +260,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: label filters extracted into projectFilter/workspaceFilter/managedFilter with a unit test (fails when a filter is dropped) plus a real-Docker scope test.
 - [x] **T4** No test fails when WorkspaceContainers is unfiltered (DeleteWorkspace would remove every host container) — [internal/dockerx/client.go:52](../../../internal/dockerx/client.go#L52)
   - Done: see T3.
-- [ ] **T5** No test fails when the runner's own timeout is removed, although every caller detaches its context — [internal/runner/runner.go:100](../../../internal/runner/runner.go#L100)
+- [x] **T5** No test fails when the runner's own timeout is removed, although every caller detaches its context — [internal/runner/runner.go:100](../../../internal/runner/runner.go#L100)
+  - Done: Options.Grace (default 30s) makes the kill grace configurable; TestRunnerTimeoutStopsHangingCompose uses a detached ctx and a sleeping fake compose.
 - [ ] **T6** No test fails when workspace total memory/CPU quotas stop counting other apps — [internal/service/plan.go:90](../../../internal/service/plan.go#L90)
 - [ ] **T7** No test fails when prepare stops holding the workspace mutex (quota race) — [internal/service/deploy.go:126](../../../internal/service/deploy.go#L126)
 - [ ] **T8** No test fails when ListPortClaims is not scoped to the workspace (cross-tenant leak via whoami) — [internal/store/apps.go:174](../../../internal/store/apps.go#L174)
