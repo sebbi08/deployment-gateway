@@ -382,6 +382,7 @@ Audit params redact environment **values** (`***`); keys are kept. Params are st
 ### Operator checklist (manual, not automated by the gateway)
 
 - Create external network `apps`; attach Traefik to it.
+- Configure `default-address-pools` in `daemon.json` (e.g. base `10.201.0.0/16`, size 24): every app needs one network, and the built-in pools allow about 31 host-wide. Startup warns when they are not configured.
 - Wildcard DNS for the apps domain (e.g. `*.apps.example.com`) and a wildcard certificate via the DNS challenge, or per-host certs.
 - Host `~/.docker/config.json` must use inline `auths`, not a `credsStore`.
 - Published ports: Docker port publishing bypasses `ufw`/host firewall rules. Anything published on bind IP `0.0.0.0` is reachable from every network the host is on, without Traefik or Authelia. Choose each workspace's bind IP (`0.0.0.0`, LAN IP, or `127.0.0.1`) and port range deliberately, and keep ranges clear of ports used by host services.

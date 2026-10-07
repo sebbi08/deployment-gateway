@@ -178,6 +178,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	warnUntrustedProxies(cfg, logger)
 	warnBroadAdminProxies(cfg, logger)
+	warnDefaultAddressPools(ctx, dc, logger)
 	authn := newAuthenticator(st, cfg, logger)
 	adminSrv := admin.New(admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
 		TrustedProxies: cfg.AdminTrustedProxies, ForwardedProxies: cfg.TrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
@@ -228,6 +229,24 @@ func newAuthenticator(st *store.Store, cfg config.Config, logger *slog.Logger) *
 	return &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute),
 		TrustedProxies: cfg.TrustedProxies, Logger: logger, MaxInFlight: maxInFlightPerToken,
 		RateBurst: rateBurstPerToken, RatePerSecond: ratePerTokenPerSec}
+}
+
+type addressPools interface {
+	AddressPoolsConfigured(context.Context) (bool, error)
+}
+
+// warnDefaultAddressPools flags a daemon without default-address-pools:
+// every app gets its own network, and the built-in pools allow only about
+// 31 networks host-wide (shared with the host's own stacks).
+func warnDefaultAddressPools(ctx context.Context, p addressPools, logger *slog.Logger) {
+	configured, err := p.AddressPoolsConfigured(ctx)
+	if err != nil {
+		logger.Warn("cannot read the Docker daemon's address pools", "err", err)
+		return
+	}
+	if !configured {
+		logger.Warn(`Docker uses its built-in address pools (about 31 networks host-wide) and every app needs one network; configure "default-address-pools" in daemon.json, e.g. {"base":"10.201.0.0/16","size":24}`)
+	}
 }
 
 // warnBroadAdminProxies flags address ranges in ADMIN_TRUSTED_PROXIES in

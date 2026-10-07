@@ -209,3 +209,14 @@ func (c *Client) RemoveVolume(ctx context.Context, name string) error {
 	}
 	return err
 }
+
+// AddressPoolsConfigured reports whether the daemon has custom
+// default-address-pools; without them it uses its built-in pools, which
+// allow about 31 networks.
+func (c *Client) AddressPoolsConfigured(ctx context.Context) (bool, error) {
+	res, err := c.api.Info(ctx, client.InfoOptions{})
+	if err != nil {
+		return false, err
+	}
+	return len(res.Info.DefaultAddressPools) > 0, nil
+}

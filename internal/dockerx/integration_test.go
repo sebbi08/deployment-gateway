@@ -33,3 +33,13 @@ func TestIntegrationRemoveVolume(t *testing.T) {
 		t.Fatalf("removing a missing volume must not fail: %v", err)
 	}
 }
+
+func TestIntegrationAddressPoolsConfigured(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.AddressPoolsConfigured(context.Background()); err != nil {
+		t.Fatalf("info: %v", err)
+	}
+}

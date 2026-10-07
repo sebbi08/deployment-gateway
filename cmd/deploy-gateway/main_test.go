@@ -167,3 +167,26 @@ func TestWarnBroadAdminProxies(t *testing.T) {
 		t.Fatalf("password mode must not warn, got %q", out)
 	}
 }
+
+type fakePools struct {
+	configured bool
+	err        error
+}
+
+func (f fakePools) AddressPoolsConfigured(context.Context) (bool, error) { return f.configured, f.err }
+
+// Every app gets its own Docker network; the daemon's built-in pools allow
+// only about 31 networks host-wide.
+func TestWarnDefaultAddressPools(t *testing.T) {
+	logs := func(p fakePools) string {
+		var buf bytes.Buffer
+		warnDefaultAddressPools(context.Background(), p, slog.New(slog.NewTextHandler(&buf, nil)))
+		return buf.String()
+	}
+	if out := logs(fakePools{}); !strings.Contains(out, "default-address-pools") {
+		t.Fatalf("built-in pools must warn, got %q", out)
+	}
+	if out := logs(fakePools{configured: true}); out != "" {
+		t.Fatalf("configured pools must not warn, got %q", out)
+	}
+}
