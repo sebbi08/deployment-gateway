@@ -170,3 +170,23 @@ func TestListPortClaimsIsScopedToWorkspace(t *testing.T) {
 		t.Fatalf("alice's claims = %+v, %v", claims, err)
 	}
 }
+
+// The agent list shows the caller's apps only.
+func TestListAppsIsScopedToWorkspace(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	alice := newWorkspace(t, s, "alice", 20000, 20099)
+	bob := newWorkspace(t, s, "bob", 20100, 20199)
+	for _, a := range []struct {
+		ws   int64
+		name string
+	}{{alice.ID, "shop"}, {bob.ID, "blog"}, {bob.ID, "shop"}} {
+		if _, err := s.SaveDeployment(ctx, a.ws, a.name, 1, 0.1, nil, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	apps, err := s.ListApps(ctx, alice.ID)
+	if err != nil || len(apps) != 1 || apps[0].Name != "shop" || apps[0].WorkspaceID != alice.ID {
+		t.Fatalf("alice's apps = %+v, %v", apps, err)
+	}
+}
