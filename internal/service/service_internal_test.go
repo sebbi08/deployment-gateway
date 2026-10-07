@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/stack"
 	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
@@ -93,5 +95,54 @@ func TestWriteAndCopyFileSync(t *testing.T) {
 		if err != nil || string(got) != "services: {}\n" || fi.Mode().Perm() != 0o640 {
 			t.Fatalf("%s: %q %v %v", p, got, fi.Mode().Perm(), err)
 		}
+	}
+}
+
+// prepare re-checks the quotas and commits the reservation; without the
+// workspace mutex two deploys of different apps could both pass the check.
+func TestPrepareHoldsWorkspaceMutex(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	s := New(st, nil, nil, t.TempDir())
+	s.Chown = func(string, int, int) error { return nil }
+	ctx := context.Background()
+	w, err := s.CreateWorkspace(ctx, "admin", "alice", store.BuiltinDefaultQuota(), PortSettings{Start: 20000, End: 20099, BindIP: "0.0.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := s.CreateToken(ctx, "admin", w, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tk, ws, err := st.TokenByHash(ctx, auth.HashToken(tok))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Principal{Workspace: ws, TokenID: tk.ID, TokenHash: auth.HashToken(tok)}
+	sk, err := stack.Decode([]byte(`{"services": {"web": {"image": "a:1"}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.stage(ctx, p, "shop", sk); err != nil {
+		t.Fatal(err)
+	}
+	mu := s.wsMutex("alice")
+	mu.Lock()
+	done := make(chan error, 1)
+	go func() {
+		_, _, _, err := s.prepare(ctx, p, "shop", sk)
+		done <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("prepare ran while the workspace mutex was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
