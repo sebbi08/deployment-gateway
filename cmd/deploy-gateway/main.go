@@ -23,6 +23,7 @@ import (
 	"github.com/sebbi08/deployment-gateway/internal/auth"
 	"github.com/sebbi08/deployment-gateway/internal/config"
 	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/installpage"
 	"github.com/sebbi08/deployment-gateway/internal/mcpserver"
 	"github.com/sebbi08/deployment-gateway/internal/runner"
 	"github.com/sebbi08/deployment-gateway/internal/service"
@@ -116,8 +117,10 @@ func checkSameMount(ctx context.Context, m mountInspector, self, root string, co
 
 type pinger interface{ Ping(context.Context) error }
 
-func agentHandler(svc *service.Service, authn *agentauth.Authenticator, p pinger) http.Handler {
+func agentHandler(svc *service.Service, authn *agentauth.Authenticator, p pinger, install installpage.Options) http.Handler {
 	mux := http.NewServeMux()
+	mux.Handle("GET /install", installpage.Handler(install))
+	mux.Handle("GET /{$}", http.RedirectHandler("/install", http.StatusFound))
 	mux.Handle("/mcp", agentauth.ReadBodyFirst(mcpserver.Handler(mcpserver.New(svc, version), authn)))
 	mux.Handle("/api/v1/", agentauth.ReadBodyFirst((&api.Handler{Svc: svc, Auth: authn}).Routes()))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +198,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	warnDefaultAddressPools(ctx, dc, logger)
 	authn := newAuthenticator(st, cfg, logger)
 	adminSrv := admin.New(adminOptions(cfg, svc, st, logger))
-	servers := newServers(cfg, agentHandler(svc, authn, dc), adminSrv.Handler())
+	servers := newServers(cfg, agentHandler(svc, authn, dc, installOptions(cfg)), adminSrv.Handler())
 	go pruneAudit(ctx, st, logger)
 
 	errc := make(chan error, len(servers))
@@ -209,6 +212,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	mode := "password"
 	if cfg.ProxyMode() {
 		mode = "proxy"
+	}
+	if cfg.AgentURL == "" {
+		logger.Warn("MCP_HOST is not set: the admin UI cannot show the agent setup prompt with the real MCP URL")
 	}
 	logger.Info("deploy-gateway started", "version", version, "agent", cfg.AgentListen, "admin", cfg.AdminListen, "admin_auth", mode, "root", root)
 
@@ -237,7 +243,13 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 // limiter.
 func adminOptions(cfg config.Config, svc *service.Service, st *store.Store, logger *slog.Logger) admin.Options {
 	return admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
-		TrustedProxies: cfg.AdminTrustedProxies, ForwardedProxies: cfg.TrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger}
+		TrustedProxies: cfg.AdminTrustedProxies, ForwardedProxies: cfg.TrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger,
+		AgentURL: cfg.AgentURL, AdminURL: cfg.AdminURL}
+}
+
+// installOptions feeds the public install page on the agent listener.
+func installOptions(cfg config.Config) installpage.Options {
+	return installpage.Options{AgentURL: cfg.AgentURL, AdminURL: cfg.AdminURL, Version: version, TrustedProxies: cfg.TrustedProxies}
 }
 
 // newServers binds the agent and admin handlers to their own listeners.

@@ -19,6 +19,7 @@ import (
 	"github.com/sebbi08/deployment-gateway/internal/agentauth"
 	"github.com/sebbi08/deployment-gateway/internal/auth"
 	"github.com/sebbi08/deployment-gateway/internal/config"
+	"github.com/sebbi08/deployment-gateway/internal/installpage"
 	"github.com/sebbi08/deployment-gateway/internal/service"
 	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
 	"github.com/sebbi08/deployment-gateway/internal/store"
@@ -91,7 +92,7 @@ func TestAgentHandlerHealthz(t *testing.T) {
 		err  error
 		want int
 	}{{nil, 200}, {errors.New("down"), 503}} {
-		h := agentHandler(svc, authn, fakePinger{c.err})
+		h := agentHandler(svc, authn, fakePinger{c.err}, installpage.Options{})
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("GET", "/healthz", nil))
 		if w.Code != c.want {
@@ -99,7 +100,7 @@ func TestAgentHandlerHealthz(t *testing.T) {
 		}
 	}
 	w := httptest.NewRecorder()
-	agentHandler(svc, authn, fakePinger{}).ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/whoami", nil))
+	agentHandler(svc, authn, fakePinger{}, installpage.Options{}).ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/whoami", nil))
 	if w.Code != http.StatusUnauthorized {
 		t.Fatalf("api without token: %d", w.Code)
 	}
@@ -165,7 +166,7 @@ func TestAgentHandlerReadsBodyBeforeAuth(t *testing.T) {
 	defer st.Close()
 	svc := service.New(st, &servicetest.FakeCompose{}, servicetest.NewFakeDocker(), t.TempDir())
 	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, time.Hour)}
-	h := agentHandler(svc, authn, fakePinger{})
+	h := agentHandler(svc, authn, fakePinger{}, installpage.Options{})
 	for _, path := range []string{"/api/v1/whoami", "/mcp"} {
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, httptest.NewRequest("POST", path, strings.NewReader(strings.Repeat("x", agentauth.MaxBodyBytes+1))))
@@ -269,7 +270,7 @@ func TestAdminOptionsTrustWiring(t *testing.T) {
 	if !slices.Equal(o.TrustedProxies, cfg.AdminTrustedProxies) || !slices.Equal(o.ForwardedProxies, cfg.TrustedProxies) {
 		t.Fatalf("trusted = %v, forwarded = %v", o.TrustedProxies, o.ForwardedProxies)
 	}
-	if o.UserHeader != "Remote-User" || o.PasswordHash != "hash" {
+	if o.UserHeader != "Remote-User" || o.PasswordHash != "hash" || o.AgentURL != "" || o.AdminURL != "" {
 		t.Fatalf("options = %+v", o)
 	}
 }
@@ -332,5 +333,43 @@ func TestRunningInContainer(t *testing.T) {
 	}
 	if !runningInContainer(marker) {
 		t.Fatal("marker file present: in a container")
+	}
+}
+
+// The install page and the root redirect are public; the URLs come from
+// MCP_HOST / ADMIN_HOST.
+func TestAgentHandlerInstallPage(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := service.New(st, &servicetest.FakeCompose{}, servicetest.NewFakeDocker(), t.TempDir())
+	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, time.Hour)}
+	cfg := config.Config{AgentURL: "https://mcp.example.com", AdminURL: "https://deploy-admin.example.com"}
+	h := agentHandler(svc, authn, fakePinger{}, installOptions(cfg))
+
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/install", nil))
+	body := w.Body.String()
+	if w.Code != 200 || !strings.Contains(body, "https://mcp.example.com/mcp") || !strings.Contains(body, "https://deploy-admin.example.com") {
+		t.Fatalf("install page: %d %.200q", w.Code, body)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/install" {
+		t.Fatalf("root: %d %q", w.Code, w.Header().Get("Location"))
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/other", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("unknown path: %d", w.Code)
+	}
+}
+
+func TestAdminOptionsPublicURLs(t *testing.T) {
+	o := adminOptions(config.Config{AgentURL: "https://mcp.example.com", AdminURL: "https://deploy-admin.example.com"}, nil, nil, slog.Default())
+	if o.AgentURL != "https://mcp.example.com" || o.AdminURL != "https://deploy-admin.example.com" {
+		t.Fatalf("options = %+v", o)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -37,6 +38,12 @@ type Config struct {
 	// RESERVED_LABEL_PREFIXES: label namespaces of further label-driven tools
 	// on the host; images and containers must not carry them.
 	ReservedLabelPrefixes []string
+	// AgentURL and AdminURL (from MCP_HOST / ADMIN_HOST) are the public base
+	// URLs of the agent endpoint and the admin UI, e.g.
+	// https://mcp.example.com; empty when unset. They are only shown to
+	// agents and admins (install page, agent prompt), never used for routing.
+	AgentURL string
+	AdminURL string
 }
 
 var labelPrefixRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
@@ -119,6 +126,12 @@ func Load(getenv func(string) string) (Config, error) {
 			c.ReservedLabelPrefixes = append(c.ReservedLabelPrefixes, p)
 		}
 	}
+	if c.AgentURL, err = PublicURL(getenv("MCP_HOST")); err != nil {
+		errs = append(errs, "MCP_HOST: "+err.Error())
+	}
+	if c.AdminURL, err = PublicURL(getenv("ADMIN_HOST")); err != nil {
+		errs = append(errs, "ADMIN_HOST: "+err.Error())
+	}
 	if s := getenv("DEPLOY_CONCURRENCY"); s != "" {
 		n, err := strconv.Atoi(s)
 		if err != nil || n < 1 || n > 8 {
@@ -168,6 +181,37 @@ func ParsePrefixes(s string) ([]netip.Prefix, error) {
 		out = append(out, netip.PrefixFrom(a, a.BitLen()))
 	}
 	return out, nil
+}
+
+var hostRe = regexp.MustCompile(`^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$`)
+
+// PublicURL turns a public hostname (mcp.example.com, optionally with a
+// port) into https://<host>. A full http:// or https:// URL without path,
+// query or credentials is accepted as is, for setups without TLS. Empty
+// stays empty.
+func PublicURL(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	if !strings.Contains(s, "://") {
+		s = "https://" + s
+	}
+	u, err := url.Parse(s)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.User != nil ||
+		(u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" || u.Opaque != "" {
+		return "", errors.New("must be a hostname such as mcp.example.com, or an http(s):// URL without path")
+	}
+	host, port := u.Hostname(), u.Port()
+	if _, err := netip.ParseAddr(host); err != nil && !hostRe.MatchString(host) {
+		return "", fmt.Errorf("invalid hostname %q", host)
+	}
+	if port != "" {
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return "", fmt.Errorf("invalid port %q", port)
+		}
+	}
+	return u.Scheme + "://" + strings.ToLower(u.Host), nil
 }
 
 // parseOwner parses a numeric "uid:gid" with both values in uint32 range.

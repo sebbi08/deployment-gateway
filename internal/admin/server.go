@@ -42,6 +42,10 @@ type Options struct {
 	UserHeader       string
 	UI               fs.FS // built React app (index.html + assets/); may lack index.html
 	Logger           *slog.Logger
+	// AgentURL and AdminURL are the public base URLs (MCP_HOST, ADMIN_HOST)
+	// the UI puts into the agent setup prompt; empty when not configured.
+	AgentURL string
+	AdminURL string
 }
 
 type Server struct {
@@ -150,7 +154,8 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"actor": actor(r), "proxy_mode": s.proxyMode()})
+	writeJSON(w, http.StatusOK, map[string]any{"actor": actor(r), "proxy_mode": s.proxyMode(),
+		"agent_url": s.opts.AgentURL, "admin_url": s.opts.AdminURL})
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {

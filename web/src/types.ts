@@ -8,6 +8,10 @@ export interface FieldError {
 export interface Me {
   actor: string;
   proxy_mode: boolean;
+  /** Public base URL of the agent endpoint (MCP_HOST); empty when not configured. */
+  agent_url: string;
+  /** Public base URL of the admin UI (ADMIN_HOST); empty when not configured. */
+  admin_url: string;
 }
 
 export interface Quota {

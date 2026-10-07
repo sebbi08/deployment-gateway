@@ -8,7 +8,7 @@ import { Layout } from "./Layout";
 test("the burger toggles the navigation and a link closes it", async () => {
   mockApi({});
   renderWithProviders(
-    <Layout me={{ actor: "admin", proxy_mode: false }}>
+    <Layout me={{ actor: "admin", proxy_mode: false, agent_url: "", admin_url: "" }}>
       <p>content</p>
     </Layout>,
   );
