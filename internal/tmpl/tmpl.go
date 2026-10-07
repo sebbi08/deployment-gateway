@@ -84,10 +84,10 @@ func Validate(t Template, others []Template) error {
 		} else if !labelKeyRe.MatchString(k) {
 			add("invalid label key " + strconv.Quote(k))
 		}
-		if strings.HasPrefix(strings.ToLower(k), names.LabelPrefix) {
+		if mayHavePrefix(k, names.LabelPrefix) {
 			add("label key " + strconv.Quote(k) + ": the deploy-gateway. prefix is reserved")
 		}
-		if strings.HasPrefix(strings.ToLower(k), "com.docker.compose.") {
+		if mayHavePrefix(k, "com.docker.compose.") {
 			add("label key " + strconv.Quote(k) + ": the com.docker.compose. prefix is reserved for compose")
 		}
 		if len(v) > 4096 {
@@ -107,6 +107,19 @@ func Validate(t Template, others []Template) error {
 		return errs
 	}
 	return nil
+}
+
+// mayHavePrefix reports whether label key k can render to a key starting
+// with prefix: it does already, or a placeholder follows a literal part that
+// prefix starts with (deploy-{{app}}. becomes deploy-gateway. for app
+// "gateway").
+func mayHavePrefix(k, prefix string) bool {
+	k = strings.ToLower(k)
+	if strings.HasPrefix(k, prefix) {
+		return true
+	}
+	lit, _, hasPh := strings.Cut(k, "{{")
+	return hasPh && strings.HasPrefix(prefix, lit)
 }
 
 // traefikObjectRe matches Traefik router and service labels and captures the
