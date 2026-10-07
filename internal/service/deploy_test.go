@@ -176,6 +176,35 @@ func TestDeployQuotaCountsOtherApps(t *testing.T) {
 	}
 }
 
+func TestDeployTotalQuotasCountOtherApps(t *testing.T) {
+	h := newHarness(t)
+	q := store.BuiltinDefaultQuota()
+	q.MaxApps = 10
+	q.MaxTotalMemoryMB, q.MaxMemoryMB, q.DefaultMemoryMB = 256, 256, 128
+	q.MaxTotalCPUs, q.MaxCPUs, q.DefaultCPUs = 1, 1, 0.25
+	p := h.workspaceWithQuota("alice", 0, 0, q)
+	deploy := func(app, res string) error {
+		_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: app,
+			Stack: mustStack(t, `{"services": {"web": {"image": "a:1", "resources": `+res+`}}}`)})
+		return err
+	}
+	if err := deploy("shop", `{"memory": "128m", "cpus": 0.75}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := deploy("blog", `{"memory": "256m", "cpus": 0.25}`); code(err) != service.CodeQuota || !strings.Contains(err.Error(), "total memory") {
+		t.Fatalf("memory of other apps not counted: %v", err)
+	}
+	if err := deploy("blog", `{"memory": "128m", "cpus": 0.5}`); code(err) != service.CodeQuota || !strings.Contains(err.Error(), "total cpus") {
+		t.Fatalf("cpus of other apps not counted: %v", err)
+	}
+	if err := deploy("blog", `{"memory": "128m", "cpus": 0.25}`); err != nil {
+		t.Fatalf("deploy within the totals: %v", err)
+	}
+	if err := deploy("shop", `{"memory": "128m", "cpus": 0.75}`); err != nil {
+		t.Fatalf("redeploy must not count its own previous resources: %v", err)
+	}
+}
+
 func TestDeployCancelledUpKeepsLastGoodPrev(t *testing.T) {
 	h := newHarness(t)
 	p := h.workspace("alice", 20000, 20099)
