@@ -189,14 +189,8 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	warnBroadAdminProxies(cfg, logger)
 	warnDefaultAddressPools(ctx, dc, logger)
 	authn := newAuthenticator(st, cfg, logger)
-	adminSrv := admin.New(admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
-		TrustedProxies: cfg.AdminTrustedProxies, ForwardedProxies: cfg.TrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
-	servers := []*http.Server{
-		{Addr: cfg.AgentListen, Handler: agentHandler(svc, authn, dc), ReadHeaderTimeout: 10 * time.Second,
-			WriteTimeout: agentWriteTimeout(cfg.DeployTimeout), IdleTimeout: 2 * time.Minute},
-		{Addr: cfg.AdminListen, Handler: adminSrv.Handler(), ReadHeaderTimeout: 10 * time.Second,
-			WriteTimeout: agentWriteTimeout(cfg.DeployTimeout), IdleTimeout: 2 * time.Minute},
-	}
+	adminSrv := admin.New(adminOptions(cfg, svc, st, logger))
+	servers := newServers(cfg, agentHandler(svc, authn, dc), adminSrv.Handler())
 	go pruneAudit(ctx, st, logger)
 
 	errc := make(chan error, len(servers))
@@ -231,6 +225,24 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		logger.Warn("compose operations still running at exit", "err", err)
 	}
 	return nil
+}
+
+// adminOptions wires the admin UI: only ADMIN_TRUSTED_PROXIES may assert an
+// identity header; TRUSTED_PROXIES only supply the client IP for the login
+// limiter.
+func adminOptions(cfg config.Config, svc *service.Service, st *store.Store, logger *slog.Logger) admin.Options {
+	return admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
+		TrustedProxies: cfg.AdminTrustedProxies, ForwardedProxies: cfg.TrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger}
+}
+
+// newServers binds the agent and admin handlers to their own listeners.
+func newServers(cfg config.Config, agentH, adminH http.Handler) []*http.Server {
+	return []*http.Server{
+		{Addr: cfg.AgentListen, Handler: agentH, ReadHeaderTimeout: 10 * time.Second,
+			WriteTimeout: agentWriteTimeout(cfg.DeployTimeout), IdleTimeout: 2 * time.Minute},
+		{Addr: cfg.AdminListen, Handler: adminH, ReadHeaderTimeout: 10 * time.Second,
+			WriteTimeout: agentWriteTimeout(cfg.DeployTimeout), IdleTimeout: 2 * time.Minute},
+	}
 }
 
 // agentWriteTimeout covers the longest deploy: pull, up and a security

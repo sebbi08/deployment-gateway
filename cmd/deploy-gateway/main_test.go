@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -222,5 +223,43 @@ func TestCheckDefaultRuntime(t *testing.T) {
 	}
 	if err := checkDefaultRuntime(ctx, fakeRuntime("nvidia"), nil); err == nil {
 		t.Fatal("nvidia default runtime must be refused")
+	}
+}
+
+// Only ADMIN_TRUSTED_PROXIES may assert the admin identity; TRUSTED_PROXIES
+// (the agent proxy) only supply forwarded client IPs.
+func TestAdminOptionsTrustWiring(t *testing.T) {
+	cfg := config.Config{
+		AdminTrustedProxies: []netip.Prefix{netip.MustParsePrefix("10.0.0.1/32")},
+		TrustedProxies:      []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32")},
+		AdminUserHeader:     "Remote-User",
+		AdminPasswordHash:   "hash",
+	}
+	o := adminOptions(cfg, nil, nil, slog.Default())
+	if !slices.Equal(o.TrustedProxies, cfg.AdminTrustedProxies) || !slices.Equal(o.ForwardedProxies, cfg.TrustedProxies) {
+		t.Fatalf("trusted = %v, forwarded = %v", o.TrustedProxies, o.ForwardedProxies)
+	}
+	if o.UserHeader != "Remote-User" || o.PasswordHash != "hash" {
+		t.Fatalf("options = %+v", o)
+	}
+}
+
+// Each listener serves its own handler: the admin API must never be
+// reachable on the agent address.
+func TestNewServersBindsHandlersToListeners(t *testing.T) {
+	cfg := config.Config{AgentListen: ":8080", AdminListen: "127.0.0.1:8081", DeployTimeout: time.Minute}
+	agentH := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(201) })
+	adminH := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(202) })
+	got := map[string]int{}
+	for _, srv := range newServers(cfg, agentH, adminH) {
+		w := httptest.NewRecorder()
+		srv.Handler.ServeHTTP(w, httptest.NewRequest("GET", "/", nil))
+		got[srv.Addr] = w.Code
+		if srv.ReadHeaderTimeout <= 0 || srv.WriteTimeout != agentWriteTimeout(cfg.DeployTimeout) {
+			t.Errorf("%s: timeouts not set: %+v", srv.Addr, srv)
+		}
+	}
+	if len(got) != 2 || got[":8080"] != 201 || got["127.0.0.1:8081"] != 202 {
+		t.Fatalf("listener -> handler = %v", got)
 	}
 }
