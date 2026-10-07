@@ -334,3 +334,19 @@ func TestProxyModeRejectsRepeatedIdentityHeader(t *testing.T) {
 		t.Fatalf("two identity headers got %d, want 401", w.Code)
 	}
 }
+
+// Only the trusted proxy may assert an identity; the same header from any
+// other peer is a forgery.
+func TestProxyModeRejectsIdentityHeaderFromUntrustedPeer(t *testing.T) {
+	e := newEnv(t, true, builtUI)
+	forged := func(r *http.Request) {
+		r.RemoteAddr = "10.0.0.2:4444"
+		r.Header.Set("Remote-User", "alice-admin")
+	}
+	if w := e.do("GET", "/api/admin/me", nil, forged); w.Code != http.StatusForbidden {
+		t.Fatalf("forged identity header got %d %s, want 403", w.Code, w.Body.String())
+	}
+	if w := e.do("GET", "/api/admin/workspaces", nil, forged); w.Code != http.StatusForbidden {
+		t.Fatalf("forged identity header got %d on the API, want 403", w.Code)
+	}
+}
