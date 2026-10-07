@@ -200,11 +200,12 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 - [x] **LO35** (F55, confirmed) Template label editor silently keeps only the last of duplicate keys — [web/src/pages/TemplateEditor.tsx:33](../../../web/src/pages/TemplateEditor.tsx#L33)
   - Fix: In parseLabels, record the first line number of each key in a Map. When a key repeats, add an error such as `Labels line ${i+1}: duplicate key "k" (first on line M)`. Existing errors already disable Save (line 135) and are shown on the textarea (line 132). Add a duplicate-key case to the parseLabels test in TemplateEditor.test.tsx.
   - Done: parseLabels reports duplicate keys as errors (Save stays disabled); keys colliding only after rendering are rejected by the backend (L7).
-- [ ] **LO36** (F56, confirmed) Below 768 px the navbar covers all content and there is no burger to collapse it — [web/src/components/Layout.tsx:29](../../../web/src/components/Layout.tsx#L29)
+- [x] **LO36** (F56, confirmed) Below 768 px the navbar covers all content and there is no burger to collapse it — [web/src/components/Layout.tsx:29](../../../web/src/components/Layout.tsx#L29)
   - Fix: Add `const [opened, { toggle, close }] = useDisclosure()` and render `<Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" />` in the header. Use `navbar={{ width: 220, breakpoint: "sm", collapsed: { mobile: !opened } }}` and call `close()` in each NavLink's onClick. Below sm, hide the actor text (`visibleFrom="sm"`) so the header's right-hand group fits on one line.
 
 ## Info / docs
 
+  - Done: burger button below the sm breakpoint toggles the navbar (collapsed by default on mobile, closes on navigation); actor text hidden on narrow screens.
 - [ ] **I1** (F41, confirmed) README/spec example postgres service lacks POSTGRES_PASSWORD, so the example stack can't deploy — [README.md:81](../../../README.md#L81)
   - Fix: In README.md:81 and spec §7, add `"environment": {"POSTGRES_PASSWORD": "change-me", "POSTGRES_DB": "shop"}` to db. Change web's DATABASE_URL to `postgres://postgres:change-me@alice-shop-db:5432/shop` and note that a real secret must be used. Optionally add the pg_isready healthcheck to the spec example so web waits for a healthy db.
 - [ ] **I2** (F42, confirmed) Several spec §19 tests missing (integration stop/port_taken, MCP per-tool calls, golden files) — [internal/service/integration_test.go:32](../../../internal/service/integration_test.go#L32)
