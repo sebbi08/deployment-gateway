@@ -352,3 +352,20 @@ func TestDeleteReportsBusyComposeSlot(t *testing.T) {
 		t.Fatalf("delete error must explain the busy slot: %v", err)
 	}
 }
+
+// A service still starting when --wait gives up is usually the culprit; its
+// logs belong in the failure message.
+func TestFailureLogsIncludeStartingContainers(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	h.compose.AfterUp = func() {
+		c := h.docker.Containers["alice-shop-web"]
+		c.Health = "starting"
+		h.docker.Containers["alice-shop-web"] = c
+	}
+	h.docker.LogsOut = "web: waiting for database\n"
+	_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+	if code(err) != service.CodeDeployFailed || !strings.Contains(err.Error(), "waiting for database") {
+		t.Fatalf("failure message lacks the starting container's logs: %v", err)
+	}
+}

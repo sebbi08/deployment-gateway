@@ -1,6 +1,10 @@
 package dockerx
 
-import "testing"
+import (
+	"fmt"
+	"strings"
+	"testing"
+)
 
 func TestHealthFromStatus(t *testing.T) {
 	cases := map[string]string{
@@ -16,5 +20,25 @@ func TestHealthFromStatus(t *testing.T) {
 		if got := healthFromStatus(status); got != want {
 			t.Errorf("healthFromStatus(%q) = %q, want %q", status, got, want)
 		}
+	}
+}
+
+// Logs keep the newest lines: the decisive error is usually at the end.
+func TestTailWriterKeepsNewestLines(t *testing.T) {
+	w := &tailWriter{max: 20}
+	for i := range 10 {
+		fmt.Fprintf(w, "line %d\n", i)
+	}
+	got := w.String()
+	if !strings.HasSuffix(got, "line 8\nline 9\n") || strings.Contains(got, "line 0") || len(got) > 20+len(truncatedMark) {
+		t.Fatalf("tail = %q", got)
+	}
+	if !strings.HasPrefix(got, truncatedMark) {
+		t.Fatalf("truncation not marked: %q", got)
+	}
+	small := &tailWriter{max: 100}
+	small.Write([]byte("a\nb\n"))
+	if small.String() != "a\nb\n" {
+		t.Fatalf("untruncated output changed: %q", small.String())
 	}
 }

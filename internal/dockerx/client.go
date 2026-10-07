@@ -135,19 +135,43 @@ func (c *Client) ImageLabels(ctx context.Context, ref string) (map[string]string
 	return res.Config.Labels, nil
 }
 
-var errCapped = errors.New("log output capped")
+// truncatedMark starts log output whose older part was dropped.
+const truncatedMark = "…[earlier output truncated]\n"
 
-type capWriter struct {
-	buf *bytes.Buffer
-	max int
+// tailWriter keeps the newest max bytes, starting at a line boundary:
+// the decisive error is usually at the end of the logs.
+type tailWriter struct {
+	b         []byte
+	max       int
+	truncated bool
 }
 
-func (w *capWriter) Write(p []byte) (int, error) {
-	if room := w.max - w.buf.Len(); len(p) > room {
-		w.buf.Write(p[:max(room, 0)])
-		return 0, errCapped
+func (w *tailWriter) Write(p []byte) (int, error) {
+	w.b = append(w.b, p...)
+	if len(w.b) > 2*w.max {
+		w.trim()
 	}
-	return w.buf.Write(p)
+	return len(p), nil
+}
+
+func (w *tailWriter) trim() {
+	if len(w.b) <= w.max {
+		return
+	}
+	cut := w.b[len(w.b)-w.max:]
+	if i := bytes.IndexByte(cut, '\n'); i >= 0 && i < len(cut)-1 {
+		cut = cut[i+1:]
+	}
+	w.b = append([]byte(nil), cut...)
+	w.truncated = true
+}
+
+func (w *tailWriter) String() string {
+	w.trim()
+	if w.truncated {
+		return truncatedMark + string(w.b)
+	}
+	return string(w.b)
 }
 
 func (c *Client) Logs(ctx context.Context, id string, tail int, since string, maxBytes int) (string, error) {
@@ -158,12 +182,11 @@ func (c *Client) Logs(ctx context.Context, id string, tail int, since string, ma
 		return "", err
 	}
 	defer rc.Close()
-	var buf bytes.Buffer
-	w := &capWriter{buf: &buf, max: maxBytes}
-	if _, err := stdcopy.StdCopy(w, w, rc); err != nil && !errors.Is(err, errCapped) && !errors.Is(err, io.EOF) {
+	w := &tailWriter{max: maxBytes}
+	if _, err := stdcopy.StdCopy(w, w, rc); err != nil && !errors.Is(err, io.EOF) {
 		return "", err
 	}
-	return buf.String(), nil
+	return w.String(), nil
 }
 
 func (c *Client) NetworkExists(ctx context.Context, name string) (bool, error) {

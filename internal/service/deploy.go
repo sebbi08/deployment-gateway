@@ -418,7 +418,7 @@ func (s *Service) failureLogs(ctx context.Context, ws, app string) string {
 	}
 	var b strings.Builder
 	for _, c := range containers {
-		if c.State == "running" && c.Health != "unhealthy" {
+		if c.State == "running" && c.Health != "unhealthy" && c.Health != "starting" {
 			continue
 		}
 		logs, err := s.Docker.Logs(ctx, c.ID, 50, "", 8<<10)
