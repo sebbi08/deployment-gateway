@@ -1,12 +1,12 @@
-import { Center, Loader, Text } from "@mantine/core";
-import { QueryCache, QueryClient, useQuery } from "@tanstack/react-query";
+import { Center, Loader, Modal, Text } from "@mantine/core";
+import { MutationCache, QueryCache, QueryClient, useQuery } from "@tanstack/react-query";
 import { Route, Routes } from "react-router";
 import { ApiError, api } from "./api";
 import { ErrorAlert } from "./components/ErrorAlert";
 import { Layout } from "./components/Layout";
 import { Audit } from "./pages/Audit";
 import { Dashboard } from "./pages/Dashboard";
-import { Login } from "./pages/Login";
+import { Login, LoginForm } from "./pages/Login";
 import { Orphans } from "./pages/Orphans";
 import { Settings } from "./pages/Settings";
 import { TemplateEditor } from "./pages/TemplateEditor";
@@ -20,7 +20,15 @@ export function createQueryClient(opts: { retry?: boolean } = {}): QueryClient {
     defaultOptions: { queries: { retry: opts.retry === false ? false : 1 }, mutations: { retry: false } },
     queryCache: new QueryCache({
       onError: (error, query) => {
-        if (query.queryKey[0] !== "me" && error instanceof ApiError && error.code === "login_required") {
+        if (query.queryKey[0] !== "me" && isLoginRequired(error)) {
+          client.invalidateQueries({ queryKey: ["me"] });
+        }
+      },
+    }),
+    // A save that hits an expired session asks for a login too.
+    mutationCache: new MutationCache({
+      onError: (error) => {
+        if (isLoginRequired(error)) {
           client.invalidateQueries({ queryKey: ["me"] });
         }
       },
@@ -38,8 +46,11 @@ export function App() {
       </Center>
     );
   }
-  if (me.isError) {
-    if (me.error instanceof ApiError && me.error.code === "login_required") {
+  // The session expired while pages were open: log in again over them, so
+  // unsaved drafts survive.
+  const relogin = me.isError && isLoginRequired(me.error) && me.data !== undefined;
+  if (me.isError && !relogin) {
+    if (isLoginRequired(me.error)) {
       return <Login />;
     }
     return (
@@ -49,7 +60,11 @@ export function App() {
     );
   }
   return (
-    <Layout me={me.data}>
+    <>
+      <Modal opened={relogin} onClose={() => {}} withCloseButton={false} closeOnClickOutside={false} closeOnEscape={false} centered>
+        <LoginForm />
+      </Modal>
+      <Layout me={me.data!}>
       <Routes>
         <Route path="/" element={<Dashboard />} />
         <Route path="/workspaces" element={<Workspaces />} />
@@ -62,6 +77,11 @@ export function App() {
         <Route path="/orphans" element={<Orphans />} />
         <Route path="*" element={<Text>Page not found.</Text>} />
       </Routes>
-    </Layout>
+      </Layout>
+    </>
   );
+}
+
+function isLoginRequired(error: unknown): boolean {
+  return error instanceof ApiError && error.code === "login_required";
 }
