@@ -406,6 +406,165 @@ func TestFailureLogsIncludeStartingContainers(t *testing.T) {
 	}
 }
 
+// The rendered file is verified independently of stack validation: a render
+// that breaks the workspace limits (here from an inconsistent workspace row
+// whose default pids exceed its maximum) is refused before compose runs.
+func TestRenderFailingVerificationIsRefused(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	w := p.Workspace
+	w.Quota.DefaultPids = w.Quota.MaxPids + 1
+	if err := h.st.UpdateWorkspace(h.ctx, w); err != nil {
+		t.Fatal(err)
+	}
+	in := service.DeployInput{App: "shop", Stack: mustStack(t, `{"services": {"web": {"image": "a:1"}}}`)}
+	if _, err := h.svc.Validate(h.ctx, p, in); code(err) != service.CodeSecurity {
+		t.Fatalf("validate: want security_violation, got %v", err)
+	}
+	if _, err := h.svc.Deploy(h.ctx, p, in); code(err) != service.CodeSecurity {
+		t.Fatalf("deploy: want security_violation, got %v", err)
+	}
+	if calls := h.compose.Calls(); len(calls) != 0 {
+		t.Fatalf("compose ran: %v", calls)
+	}
+}
+
+// An image that cannot be inspected after pull fails the deploy: skipping it
+// would skip its reserved-label check (fail-open).
+func TestDeployFailsWhenImageCannotBeInspected(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	h.hookDocker().onImageLabels = func(ref string) (map[string]string, error) {
+		if ref == "postgres:16.4" {
+			return nil, errors.New("no such image")
+		}
+		return nil, nil
+	}
+	_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+	if code(err) != service.CodeDeployFailed || !strings.Contains(err.Error(), "db") {
+		t.Fatalf("want deploy_failed naming db, got %v", err)
+	}
+	if calls := h.compose.Calls(); !slices.Equal(calls, []string{"pull dg-alice-shop"}) {
+		t.Fatalf("up must not run: %v", calls)
+	}
+}
+
+// The runtime check fails closed: a container that cannot be inspected, or
+// a container list that fails, is a violation, not a pass.
+func TestRuntimeCheckFailsClosed(t *testing.T) {
+	cases := map[string]func(d *hookDocker){
+		"inspect": func(d *hookDocker) {
+			d.onInspect = func(id string) (dockerx.Facts, error) {
+				if id == "alice-shop-web" {
+					return dockerx.Facts{}, errors.New("inspect timed out")
+				}
+				return d.FakeDocker.Inspect(context.Background(), id)
+			}
+		},
+		"list": func(d *hookDocker) {
+			d.onProjectContainers = func(string, string) ([]dockerx.ContainerInfo, error) {
+				return nil, errors.New("list timed out")
+			}
+		},
+	}
+	for name, fail := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			p := h.workspace("alice", 20000, 20099)
+			d := h.hookDocker()
+			h.compose.AfterUp = func() { fail(d) }
+			_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+			if code(err) != service.CodeSecurity {
+				t.Fatalf("want security_violation, got %v", err)
+			}
+		})
+	}
+}
+
+// The runtime check expects ports on the workspace's bind IP and bind
+// mounts inside this app's data folder only, not looser defaults.
+func TestRuntimeCheckUsesWorkspaceBindIPAndAppDataDir(t *testing.T) {
+	t.Run("bind IP", func(t *testing.T) {
+		h := newHarness(t)
+		w, err := h.svc.CreateWorkspace(h.ctx, "admin", "alice", store.BuiltinDefaultQuota(), service.PortSettings{Start: 20000, End: 20099, BindIP: "127.0.0.1"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := h.svc.SetGrants(h.ctx, "admin", w, []int64{h.tplID}); err != nil {
+			t.Fatal(err)
+		}
+		p := h.principal("alice")
+		deployExample(t, h, p)
+		if got := h.docker.Facts["alice-shop-web"].PortBindings; len(got) != 1 || got[0].HostIP != "127.0.0.1" {
+			t.Fatalf("port bindings = %+v", got)
+		}
+		h.compose.AfterUp = func() {
+			h.docker.MutateFacts("alice-shop-web", func(f *dockerx.Facts) { f.PortBindings[0].HostIP = "0.0.0.0" })
+		}
+		if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)}); code(err) != service.CodeSecurity {
+			t.Fatalf("port published on all interfaces: want security_violation, got %v", err)
+		}
+	})
+	t.Run("data dir", func(t *testing.T) {
+		h := newHarness(t)
+		p := h.workspace("alice", 20000, 20099)
+		foreign := filepath.Join(h.root, "bob", "shop", "data", "db")
+		h.compose.AfterUp = func() {
+			h.docker.MutateFacts("alice-shop-db", func(f *dockerx.Facts) {
+				f.Mounts = append(f.Mounts, dockerx.MountFact{Type: "bind", Source: foreign, Destination: "/steal"})
+			})
+		}
+		if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)}); code(err) != service.CodeSecurity {
+			t.Fatalf("bind mount of another workspace's data: want security_violation, got %v", err)
+		}
+	})
+}
+
+// Only a deploy that ended "ok" is rotated into docker-compose.prev.yml: a
+// render rejected by the runtime check, or one left "pending" by a crashed
+// gateway, is no rollback target.
+func TestPrevHoldsOnlySuccessfulRenders(t *testing.T) {
+	version := func(t *testing.T, v string) service.DeployInput {
+		return service.DeployInput{App: "shop", Stack: mustStack(t, strings.Replace(exampleStack, "shop:1.4.2", "shop:"+v, 1))}
+	}
+	cases := map[string]func(t *testing.T, h *harness, p service.Principal){
+		"security violation": func(t *testing.T, h *harness, p service.Principal) {
+			h.compose.AfterUp = func() {
+				h.docker.MutateFacts("alice-shop-web", func(f *dockerx.Facts) { f.Privileged = true })
+			}
+			if _, err := h.svc.Deploy(h.ctx, p, version(t, "2.0.0")); code(err) != service.CodeSecurity {
+				t.Fatalf("want security_violation, got %v", err)
+			}
+			h.compose.AfterUp = nil
+		},
+		"pending": func(t *testing.T, h *harness, p service.Principal) {
+			if _, err := h.svc.Deploy(h.ctx, p, version(t, "2.0.0")); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.st.RecordDeploy(h.ctx, mustApp(t, h, p, "shop"), "pending"); err != nil {
+				t.Fatal(err)
+			}
+		},
+	}
+	for name, spoil := range cases {
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			p := h.workspace("alice", 20000, 20099)
+			if _, err := h.svc.Deploy(h.ctx, p, version(t, "1.0.0")); err != nil {
+				t.Fatal(err)
+			}
+			spoil(t, h, p)
+			if _, err := h.svc.Deploy(h.ctx, p, version(t, "3.0.0")); err != nil {
+				t.Fatal(err)
+			}
+			prev, _ := os.ReadFile(filepath.Join(h.root, "alice", "shop", "docker-compose.prev.yml"))
+			if !strings.Contains(string(prev), "shop:1.0.0") {
+				t.Fatalf("prev must hold the last successful render (1.0.0):\n%s", prev)
+			}
+		})
+	}
+}
+
 func TestDeployHonoursExtraRuntimes(t *testing.T) {
 	for _, tc := range []struct {
 		extra []string

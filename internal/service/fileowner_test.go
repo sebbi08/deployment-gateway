@@ -76,6 +76,42 @@ func TestRootOwnedDataFolderIsPrivate(t *testing.T) {
 	}
 }
 
+// Compose files carry environment values (secrets): neither they nor the
+// workspace, app and data folders are accessible to other host users.
+func TestComposeFilesAndFoldersAreNotWorldAccessible(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	deployExample(t, h, p) // rotates the first render into prev
+	ws := filepath.Join(h.root, "alice")
+	for _, path := range []string{
+		ws, filepath.Join(ws, "shop"), filepath.Join(ws, "shop", "data"),
+		filepath.Join(ws, "shop", "docker-compose.yml"), filepath.Join(ws, "shop", "docker-compose.prev.yml"),
+	} {
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if perm := fi.Mode().Perm(); perm&0o007 != 0 {
+			t.Errorf("%s has mode %o, want no access for others", path, perm)
+		}
+	}
+}
+
+// A volume folder gets the uid and the gid of the container's user, which
+// may differ.
+func TestVolumeFolderOwnedByUserAndGroup(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	st := `{"services": {"db": {"image": "postgres:16.4", "user": "1000:2000", "volume": {"path": "/data"}}}}`
+	if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, st)}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(h.chowns, []string{"db 1000:2000"}) {
+		t.Fatalf("chowns = %v", h.chowns)
+	}
+}
+
 // Without CAP_DAC_OVERRIDE a root container cannot write a folder owned by
 // a previous `user`; dropping `user` hands the folder back to root.
 func TestDroppingUserReturnsDataFolderToRoot(t *testing.T) {

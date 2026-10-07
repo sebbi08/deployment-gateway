@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
 	"github.com/sebbi08/deployment-gateway/internal/service"
 	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
 	"github.com/sebbi08/deployment-gateway/internal/stack"
@@ -89,6 +90,51 @@ func mustStack(t *testing.T, raw string) stack.Stack {
 		t.Fatal(err)
 	}
 	return *s
+}
+
+// hookDocker wraps the fake Docker; a non-nil hook replaces the method, so
+// tests can make single calls fail or misbehave.
+type hookDocker struct {
+	*servicetest.FakeDocker
+	onProjectContainers func(ws, app string) ([]dockerx.ContainerInfo, error)
+	onInspect           func(id string) (dockerx.Facts, error)
+	onImageLabels       func(ref string) (map[string]string, error)
+	onLogs              func(id string, tail int, since string, maxBytes int) (string, error)
+}
+
+// hookDocker installs a hookDocker around the harness's fake Docker.
+func (h *harness) hookDocker() *hookDocker {
+	d := &hookDocker{FakeDocker: h.docker}
+	h.svc.Docker = d
+	return d
+}
+
+func (d *hookDocker) ProjectContainers(ctx context.Context, ws, app string) ([]dockerx.ContainerInfo, error) {
+	if d.onProjectContainers != nil {
+		return d.onProjectContainers(ws, app)
+	}
+	return d.FakeDocker.ProjectContainers(ctx, ws, app)
+}
+
+func (d *hookDocker) Inspect(ctx context.Context, id string) (dockerx.Facts, error) {
+	if d.onInspect != nil {
+		return d.onInspect(id)
+	}
+	return d.FakeDocker.Inspect(ctx, id)
+}
+
+func (d *hookDocker) ImageLabels(ctx context.Context, ref string) (map[string]string, error) {
+	if d.onImageLabels != nil {
+		return d.onImageLabels(ref)
+	}
+	return d.FakeDocker.ImageLabels(ctx, ref)
+}
+
+func (d *hookDocker) Logs(ctx context.Context, id string, tail int, since string, maxBytes int) (string, error) {
+	if d.onLogs != nil {
+		return d.onLogs(id, tail, since, maxBytes)
+	}
+	return d.FakeDocker.Logs(ctx, id, tail, since, maxBytes)
 }
 
 func code(err error) string {

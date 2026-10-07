@@ -137,6 +137,40 @@ func TestDeployRuntimeRejectsUnrenderedReservedLabel(t *testing.T) {
 	}
 }
 
+// Traefik's namespace is reserved on images and containers even when no
+// template renders traefik.* labels: a Traefik on the host acts on every
+// container's labels.
+func TestTraefikNamespaceReservedWithoutTraefikTemplate(t *testing.T) {
+	setup := func(t *testing.T) (*harness, service.Principal) {
+		h := newHarness(t)
+		if err := h.svc.DeleteTemplate(h.ctx, "admin", h.tplID); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.svc.CreateWorkspace(h.ctx, "admin", "alice", store.BuiltinDefaultQuota(), service.PortSettings{BindIP: "0.0.0.0"}); err != nil {
+			t.Fatal(err)
+		}
+		return h, h.principal("alice")
+	}
+	const key = "traefik.http.routers.pwn.rule"
+	in := service.DeployInput{App: "shop", Stack: mustStack(t, `{"services": {"web": {"image": "a:1"}}}`)}
+	t.Run("image", func(t *testing.T) {
+		h, p := setup(t)
+		h.docker.Images["a:1"] = map[string]string{key: "Host(`admin.example.com`)"}
+		if _, err := h.svc.Deploy(h.ctx, p, in); code(err) != service.CodeValidation || !strings.Contains(err.Error(), key) {
+			t.Fatalf("want validation_failed naming %s, got %v", key, err)
+		}
+	})
+	t.Run("runtime", func(t *testing.T) {
+		h, p := setup(t)
+		h.compose.AfterUp = func() {
+			h.docker.MutateFacts("alice-shop-web", func(f *dockerx.Facts) { f.Labels[key] = "Host(`admin.example.com`)" })
+		}
+		if _, err := h.svc.Deploy(h.ctx, p, in); code(err) != service.CodeSecurity {
+			t.Fatalf("want security_violation, got %v", err)
+		}
+	})
+}
+
 // Label-driven host tools with Docker socket access act on image labels;
 // ofelia's job-run labels, for example, start new containers with arbitrary
 // options. Their namespaces are reserved like Traefik's, and operators can

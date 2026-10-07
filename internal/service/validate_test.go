@@ -8,6 +8,7 @@ import (
 
 	"github.com/sebbi08/deployment-gateway/internal/service"
 	"github.com/sebbi08/deployment-gateway/internal/store"
+	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
 
 func TestWhoami(t *testing.T) {
@@ -26,9 +27,13 @@ func TestWhoami(t *testing.T) {
 	}
 }
 
+// list_templates shows only the templates granted to the workspace.
 func TestListTemplates(t *testing.T) {
 	h := newHarness(t)
-	p := h.workspace("alice", 0, 0)
+	if _, err := h.svc.SaveTemplate(h.ctx, "admin", 0, tmpl.Template{Name: "watch", Labels: map[string]string{"wud.watch": "true"}}); err != nil {
+		t.Fatal(err)
+	}
+	p := h.workspace("alice", 0, 0) // granted public-web only
 	res, err := h.svc.ListTemplates(h.ctx, p)
 	if err != nil || len(res.Templates) != 1 || res.Templates[0].Name != "public-web" || res.Templates[0].Shareable {
 		t.Fatalf("templates = %+v, %v", res, err)

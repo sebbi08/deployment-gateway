@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
 	"github.com/sebbi08/deployment-gateway/internal/stack"
 	"github.com/sebbi08/deployment-gateway/internal/store"
 )
@@ -44,6 +45,44 @@ func TestUpdateWorkspaceHoldsWorkspaceMutex(t *testing.T) {
 	select {
 	case <-done:
 		t.Fatal("UpdateWorkspace ran while the workspace mutex was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	mu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// noContainers is a Docker without containers; other methods are unused.
+type noContainers struct{ Docker }
+
+func (noContainers) WorkspaceContainers(context.Context, string) ([]dockerx.ContainerInfo, error) {
+	return nil, nil
+}
+
+// DeleteWorkspace holds the workspace mutex throughout; prepare re-checks
+// under it that the workspace still exists, so no deploy can commit into a
+// workspace that is being deleted.
+func TestDeleteWorkspaceHoldsWorkspaceMutex(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	s := New(st, nil, noContainers{}, t.TempDir())
+	s.Chown = func(string, int, int) error { return nil }
+	ctx := context.Background()
+	w, err := s.CreateWorkspace(ctx, "admin", "alice", store.BuiltinDefaultQuota(), PortSettings{BindIP: "0.0.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu := s.wsMutex("alice")
+	mu.Lock()
+	done := make(chan error, 1)
+	go func() { done <- s.DeleteWorkspace(ctx, "admin", w) }()
+	select {
+	case <-done:
+		t.Fatal("DeleteWorkspace ran while the workspace mutex was held")
 	case <-time.After(100 * time.Millisecond):
 	}
 	mu.Unlock()

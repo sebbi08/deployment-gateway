@@ -41,9 +41,57 @@ func TestUpdateWorkspaceRejectsRangeExcludingUsedPorts(t *testing.T) {
 	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); code(err) != service.CodeValidation {
 		t.Fatalf("expected validation error, got %v", err)
 	}
+	w.PortRangeStart, w.PortRangeEnd = 20000, 20000
+	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); code(err) != service.CodeValidation {
+		t.Fatalf("range ending below a used port: expected validation error, got %v", err)
+	}
 	w.PortRangeStart, w.PortRangeEnd = 20000, 20010
 	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); err != nil {
 		t.Fatalf("range still covering 20001 must be accepted: %v", err)
+	}
+}
+
+// The admin handlers pass quotas and port ranges straight through, so the
+// service refuses invalid ones on create and update.
+func TestWorkspaceQuotaAndPortRangeValidation(t *testing.T) {
+	h := newHarness(t)
+	bad := store.BuiltinDefaultQuota()
+	bad.MaxApps = 0
+	if _, err := h.svc.CreateWorkspace(h.ctx, "admin", "bob", bad, service.PortSettings{BindIP: "0.0.0.0"}); code(err) != service.CodeValidation {
+		t.Errorf("create with invalid quota: %v", err)
+	}
+	for _, r := range [][2]int{{20000, 65536}, {20100, 20000}} {
+		ps := service.PortSettings{Start: r[0], End: r[1], BindIP: "0.0.0.0"}
+		if _, err := h.svc.CreateWorkspace(h.ctx, "admin", "bob", store.BuiltinDefaultQuota(), ps); code(err) != service.CodeValidation {
+			t.Errorf("create with port range %d-%d: %v", r[0], r[1], err)
+		}
+	}
+	p := h.workspace("alice", 20000, 20099)
+	w := p.Workspace
+	w.Quota = bad
+	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); code(err) != service.CodeValidation {
+		t.Errorf("update with invalid quota: %v", err)
+	}
+	if got, _ := h.st.GetWorkspace(h.ctx, w.ID); got.Quota.MaxApps != store.BuiltinDefaultQuota().MaxApps {
+		t.Errorf("invalid quota stored: %+v", got.Quota)
+	}
+}
+
+// DeleteWorkspace refuses a workspace whose name is not a valid workspace
+// folder below the root, before revoking or removing anything.
+func TestDeleteWorkspaceRefusesInvalidName(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	w := p.Workspace
+	w.Name = ""
+	if err := h.svc.DeleteWorkspace(h.ctx, "admin", w); err == nil {
+		t.Fatal("delete with an empty name succeeded")
+	}
+	if _, err := os.Stat(filepath.Join(h.root, "alice")); err != nil {
+		t.Fatalf("workspace folder removed: %v", err)
+	}
+	if _, err := h.svc.Whoami(h.ctx, p); err != nil {
+		t.Fatalf("workspace or token touched: %v", err)
 	}
 }
 

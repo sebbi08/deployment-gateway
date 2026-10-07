@@ -56,6 +56,26 @@ func TestLifecycleComposeIsDetachedFromRequest(t *testing.T) {
 	}
 }
 
+// An agent delete runs detached from the request once it starts removing:
+// a disconnect mid-delete must not leave a half-deleted app.
+func TestDeleteIsNotCancelledByRequest(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	ctx, cancel := context.WithCancel(h.ctx)
+	defer cancel()
+	h.compose.OnDown = func(string) { cancel() } // containers are left to the sweep
+	if _, err := h.svc.Delete(ctx, p, service.DeleteInput{App: "shop", Confirm: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.st.GetApp(h.ctx, p.Workspace.ID, "shop"); err == nil {
+		t.Fatal("app record still present")
+	}
+	if len(h.docker.Containers) != 0 {
+		t.Fatalf("%d containers left", len(h.docker.Containers))
+	}
+}
+
 // Once compose has done its work, a client disconnect must not turn the
 // result into an internal error.
 func TestCommittedWorkReportsSuccessAfterDisconnect(t *testing.T) {
