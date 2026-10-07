@@ -276,7 +276,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: TestProxyModeRejectsIdentityHeaderFromUntrustedPeer: forged header from 10.0.0.2 gets 403 (mutant returned 200).
 - [x] **T12** No test fails when admin session IDs become constant or 16-bit — [internal/auth/sessions.go:30](../../../internal/auth/sessions.go#L30)
   - Done: TestSessionIDsAreUniqueAndLong kills both the 16-bit and the constant-ID mutant.
-- [ ] **T13** No test fails when the token hash covers only the displayed 12-char prefix — [internal/auth/token.go:26](../../../internal/auth/token.go#L26)
+- [x] **T13** No test fails when the token hash covers only the displayed 12-char prefix — [internal/auth/token.go:26](../../../internal/auth/token.go#L26)
+  - Done: TestHashTokenCoversWholeToken: same-prefix and last-char-changed tokens hash differently; prefix-only hash mutant fails.
 - [ ] **T14** No test fails when the admin body limit (public login endpoint) is removed — [internal/admin/server.go:260](../../../internal/admin/server.go#L260)
 - [ ] **T15** No test fails when the agent JSON API body limit is lifted — [internal/api/api.go:82](../../../internal/api/api.go#L82)
 - [ ] **T16** No test fails when serve() swaps admin trust wiring (AdminTrustedProxies, listener handlers) — [cmd/deploy-gateway/main.go:181](../../../cmd/deploy-gateway/main.go#L181)
