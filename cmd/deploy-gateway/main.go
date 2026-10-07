@@ -170,6 +170,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	svc.Logger = logger
 	if cfg.FileOwnerSet {
 		svc.FileOwner = &service.Owner{UID: cfg.FileUID, GID: cfg.FileGID}
+		logger.Info("FILE_OWNER: workspace folders and compose files stay owned by root; the group gets read access", "gid", cfg.FileGID)
 	}
 	warnMissingNetworks(ctx, st, dc, logger)
 	if orphans, err := svc.Orphans(ctx); err == nil && len(orphans) > 0 {

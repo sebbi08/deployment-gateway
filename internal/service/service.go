@@ -54,8 +54,9 @@ type Service struct {
 	Docker  Docker
 	Root    string
 	Chown   func(path string, uid, gid int) error
-	// FileOwner, if set, owns gateway-managed folders and compose files
-	// (FILE_OWNER). Service data dirs keep the container user's ownership.
+	// FileOwner, if set, grants its group read access to gateway-managed
+	// folders and compose files (FILE_OWNER); they stay owned by root. Service
+	// data dirs keep the container user's ownership.
 	FileOwner *Owner
 	Logger    *slog.Logger
 
@@ -64,7 +65,7 @@ type Service struct {
 }
 
 func New(st *store.Store, c Compose, d Docker, root string) *Service {
-	return &Service{Store: st, Compose: c, Docker: d, Root: root, Chown: os.Chown,
+	return &Service{Store: st, Compose: c, Docker: d, Root: root, Chown: os.Lchown,
 		Logger: slog.Default(), disk: newDiskCache(10 * time.Minute)}
 }
 
@@ -80,7 +81,9 @@ func (s *Service) own(paths ...string) error {
 		return nil
 	}
 	for _, p := range paths {
-		if err := s.Chown(p, s.FileOwner.UID, s.FileOwner.GID); err != nil {
+		// root:<gid>: the group may read, only root may write. An owning host
+		// user could otherwise swap the compose files the root gateway runs.
+		if err := s.Chown(p, 0, s.FileOwner.GID); err != nil {
 			return fmt.Errorf("chown %s: %w", p, err)
 		}
 	}
