@@ -284,4 +284,5 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: TestRequestBodyIsLimited: a 200 KiB body gets 400 too large (mutant: 422 from stack validation).
 - [x] **T16** No test fails when serve() swaps admin trust wiring (AdminTrustedProxies, listener handlers) — [cmd/deploy-gateway/main.go:181](../../../cmd/deploy-gateway/main.go#L181)
   - Done: Extracted adminOptions and newServers from serve(); TestAdminOptionsTrustWiring and TestNewServersBindsHandlersToListeners kill the proxy-list swap and the handler swap.
-- [ ] **T17** 65 further low/info surviving mutants (verify, stack, tmpl, dockerx, service, auth) — add tests in bulk
+- [x] **T17** 65 further low/info surviving mutants (verify, stack, tmpl, dockerx, service, auth) — add tests in bulk
+  - Done: All 65 handled in five commits (service, verify/render/names, stack/tmpl/config, dockerx/runner/store, auth/api/admin). Most are killed by new tests; a few were already killed, obsolete after the fixes, or equivalent (listed in the commit bodies). Two needed production changes: tmpl now rejects label keys a placeholder can complete into deploy-gateway. or com.docker.compose. (verify-12), and the /.dockerenv check moved into runningInContainer (MN6).
