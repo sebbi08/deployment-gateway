@@ -256,8 +256,10 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: tmpl tests reject adjacent placeholders and other separators; verified they fail on the weakened regex.
 - [x] **T2** MCP tools accept stacks up to the SDK's 4 MiB default; the spec's 128 KB limit (stack.Decode) never runs in production — [internal/mcpserver/mcpserver.go:107](../../../internal/mcpserver/mcpserver.go#L107)
   - Done: covered by TestOversizeBodyRejected (H3/M2).
-- [ ] **T3** No test fails when ProjectContainers drops the workspace or app label filter — [internal/dockerx/client.go:45](../../../internal/dockerx/client.go#L45)
-- [ ] **T4** No test fails when WorkspaceContainers is unfiltered (DeleteWorkspace would remove every host container) — [internal/dockerx/client.go:52](../../../internal/dockerx/client.go#L52)
+- [x] **T3** No test fails when ProjectContainers drops the workspace or app label filter — [internal/dockerx/client.go:45](../../../internal/dockerx/client.go#L45)
+  - Done: label filters extracted into projectFilter/workspaceFilter/managedFilter with a unit test (fails when a filter is dropped) plus a real-Docker scope test.
+- [x] **T4** No test fails when WorkspaceContainers is unfiltered (DeleteWorkspace would remove every host container) — [internal/dockerx/client.go:52](../../../internal/dockerx/client.go#L52)
+  - Done: see T3.
 - [ ] **T5** No test fails when the runner's own timeout is removed, although every caller detaches its context — [internal/runner/runner.go:100](../../../internal/runner/runner.go#L100)
 - [ ] **T6** No test fails when workspace total memory/CPU quotas stop counting other apps — [internal/service/plan.go:90](../../../internal/service/plan.go#L90)
 - [ ] **T7** No test fails when prepare stops holding the workspace mutex (quota race) — [internal/service/deploy.go:126](../../../internal/service/deploy.go#L126)

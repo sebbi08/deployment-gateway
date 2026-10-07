@@ -5,6 +5,7 @@ package dockerx
 import (
 	"context"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -79,5 +80,52 @@ func TestIntegrationDefaultRuntimeAllowed(t *testing.T) {
 	rt, err := c.DefaultRuntime(context.Background())
 	if err != nil || !RuntimeAllowed(rt, nil) {
 		t.Fatalf("default runtime %q (%v)", rt, err)
+	}
+}
+
+func TestIntegrationContainerQueriesAreScoped(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(name string, labels ...string) {
+		t.Helper()
+		args := []string{"create", "--name", name}
+		for _, l := range labels {
+			args = append(args, "--label", l)
+		}
+		args = append(args, "nginxinc/nginx-unprivileged:1.27-alpine")
+		if out, err := exec.Command("docker", args...).CombinedOutput(); err != nil {
+			t.Fatalf("create %s: %v %s", name, err, out)
+		}
+		t.Cleanup(func() { exec.Command("docker", "rm", "-f", name).Run() })
+	}
+	mk("dgrev-scope-a", "deploy-gateway.workspace=dgrevscope", "deploy-gateway.app=a", "deploy-gateway.managed=true")
+	mk("dgrev-scope-b", "deploy-gateway.workspace=dgrevscope", "deploy-gateway.app=b", "deploy-gateway.managed=true")
+	mk("dgrev-scope-other", "deploy-gateway.workspace=dgrevother", "deploy-gateway.app=a")
+	mk("dgrev-scope-plain")
+	names := func(cs []ContainerInfo, err error) []string {
+		t.Helper()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, c := range cs {
+			if strings.HasPrefix(c.Name, "dgrev-scope-") {
+				out = append(out, c.Name)
+			}
+		}
+		slices.Sort(out)
+		return out
+	}
+	ctx := context.Background()
+	if got := names(c.ProjectContainers(ctx, "dgrevscope", "a")); !slices.Equal(got, []string{"dgrev-scope-a"}) {
+		t.Errorf("ProjectContainers = %v", got)
+	}
+	if got := names(c.WorkspaceContainers(ctx, "dgrevscope")); !slices.Equal(got, []string{"dgrev-scope-a", "dgrev-scope-b"}) {
+		t.Errorf("WorkspaceContainers = %v", got)
+	}
+	if got := names(c.ManagedContainers(ctx)); !slices.Equal(got, []string{"dgrev-scope-a", "dgrev-scope-b"}) {
+		t.Errorf("ManagedContainers = %v", got)
 	}
 }

@@ -45,18 +45,31 @@ func (c *Client) Ping(ctx context.Context) error {
 }
 
 func (c *Client) ProjectContainers(ctx context.Context, ws, app string) ([]ContainerInfo, error) {
-	f := make(client.Filters).Add("label", names.LabelWorkspace+"="+ws).Add("label", names.LabelApp+"="+app)
-	return c.list(ctx, f)
+	return c.list(ctx, projectFilter(ws, app))
 }
 
 // WorkspaceContainers lists every container labelled with workspace ws,
 // whether or not its app is known to the gateway.
 func (c *Client) WorkspaceContainers(ctx context.Context, ws string) ([]ContainerInfo, error) {
-	return c.list(ctx, make(client.Filters).Add("label", names.LabelWorkspace+"="+ws))
+	return c.list(ctx, workspaceFilter(ws))
 }
 
 func (c *Client) ManagedContainers(ctx context.Context) ([]ContainerInfo, error) {
-	return c.list(ctx, make(client.Filters).Add("label", names.LabelManaged+"=true"))
+	return c.list(ctx, managedFilter())
+}
+
+// The owner-label filters scope every container query; Docker label
+// filters match key=value exactly.
+func projectFilter(ws, app string) client.Filters {
+	return make(client.Filters).Add("label", names.LabelWorkspace+"="+ws).Add("label", names.LabelApp+"="+app)
+}
+
+func workspaceFilter(ws string) client.Filters {
+	return make(client.Filters).Add("label", names.LabelWorkspace+"="+ws)
+}
+
+func managedFilter() client.Filters {
+	return make(client.Filters).Add("label", names.LabelManaged+"=true")
 }
 
 func (c *Client) list(ctx context.Context, f client.Filters) ([]ContainerInfo, error) {
