@@ -158,7 +158,13 @@ func (s *Server) updateWorkspace(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	s.writeDetail(w, r, ws, http.StatusOK)
+	// Answer with what was stored (e.g. the canonical bind IP).
+	stored, err := s.opts.Store.GetWorkspace(r.Context(), ws.ID)
+	if err != nil {
+		writeErr(w, err)
+		return
+	}
+	s.writeDetail(w, r, stored, http.StatusOK)
 }
 
 func (s *Server) deleteWorkspace(w http.ResponseWriter, r *http.Request) {

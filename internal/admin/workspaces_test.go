@@ -140,3 +140,20 @@ func TestDashboard(t *testing.T) {
 		t.Fatalf("dashboard = %+v", d)
 	}
 }
+
+// The response and the audit row must show the bind IP the gateway stores
+// and enforces, not the spelling the client sent.
+func TestUpdateWorkspaceReturnsCanonicalBindIP(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	c := e.login(t)
+	e.do("POST", "/api/admin/workspaces", workspaceBody("alice"), c)
+	w := e.do("PUT", "/api/admin/workspaces/alice", map[string]any{"quota": store.BuiltinDefaultQuota(),
+		"ports": service.PortSettings{Start: 20000, End: 20099, BindIP: "::ffff:127.0.0.1"}}, c)
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"bind_ip":"127.0.0.1"`) {
+		t.Fatalf("response %d %s", w.Code, w.Body.String())
+	}
+	rows, _ := e.st.ListAudit(context.Background(), store.AuditFilter{Action: "update_workspace"})
+	if len(rows) != 1 || strings.Contains(rows[0].Params, "::ffff") {
+		t.Fatalf("audit params = %+v", rows)
+	}
+}

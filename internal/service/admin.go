@@ -48,6 +48,7 @@ func (s *Service) validatePortSettings(ctx context.Context, ps *PortSettings, ex
 }
 
 func (s *Service) CreateWorkspace(ctx context.Context, actor, name string, q store.Quota, ps PortSettings) (w store.Workspace, err error) {
+	ps.BindIP = canonicalIP(ps.BindIP) // audited and stored the same way
 	defer s.adminTrack(ctx, actor, name, "create_workspace", map[string]any{"quota": q, "ports": ps}, &err)()
 	s.adminMu.Lock()
 	defer s.adminMu.Unlock()
@@ -136,6 +137,7 @@ func (s *Service) SetGrants(ctx context.Context, actor string, w store.Workspace
 }
 
 func (s *Service) UpdateWorkspace(ctx context.Context, actor string, w store.Workspace) (err error) {
+	w.PortBindIP = canonicalIP(w.PortBindIP) // audited and stored the same way
 	defer s.adminTrack(ctx, actor, w.Name, "update_workspace", w, &err)()
 	s.adminMu.Lock()
 	defer s.adminMu.Unlock()
@@ -368,4 +370,13 @@ func (s *Service) refuseWhileHostsInUse(ctx context.Context, t tmpl.Template, ac
 	slices.Sort(apps)
 	return validationError("host_pattern", fmt.Sprintf("cannot %s template %q while apps use its hosts (%s); redeploy them without this template or delete them first",
 		action, t.Name, strings.Join(apps, ", ")))
+}
+
+// canonicalIP returns the canonical form of an IP address (IPv4-mapped IPv6
+// unmapped); anything unparsable is returned unchanged for validation.
+func canonicalIP(s string) string {
+	if a, err := netip.ParseAddr(s); err == nil {
+		return a.Unmap().String()
+	}
+	return s
 }
