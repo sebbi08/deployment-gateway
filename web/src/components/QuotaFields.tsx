@@ -1,4 +1,5 @@
 import { NumberInput, SimpleGrid } from "@mantine/core";
+import { useState } from "react";
 import type { Quota } from "../types";
 
 const fields: { key: keyof Quota; label: string; decimals?: boolean }[] = [
@@ -14,18 +15,38 @@ const fields: { key: keyof Quota; label: string; decimals?: boolean }[] = [
   { key: "max_pids", label: "Max pids per service" },
 ];
 
+const completeNumber = /^\d+(\.\d+)?$/;
+
 export function QuotaFields({ value, onChange }: { value: Quota; onChange: (q: Quota) => void }) {
+  // NumberInput reports intermediate text such as "1." as a string. Keep it
+  // as typed while the field is edited and pass on only complete numbers;
+  // coercing "1." to 1 made the next keystrokes turn 1.25 into 125.
+  const [drafts, setDrafts] = useState<Partial<Record<keyof Quota, string | number>>>({});
   return (
     <SimpleGrid cols={{ base: 1, sm: 2 }}>
       {fields.map((f) => (
         <NumberInput
           key={f.key}
           label={f.label}
-          value={value[f.key]}
+          value={drafts[f.key] ?? value[f.key]}
           min={0}
           step={f.decimals ? 0.1 : 1}
           decimalScale={f.decimals ? 2 : 0}
-          onChange={(v) => onChange({ ...value, [f.key]: typeof v === "number" ? v : Number(v) || 0 })}
+          onChange={(v) => {
+            setDrafts((d) => ({ ...d, [f.key]: v }));
+            if (typeof v === "number") {
+              onChange({ ...value, [f.key]: v });
+            } else if (completeNumber.test(v)) {
+              onChange({ ...value, [f.key]: Number(v) });
+            }
+          }}
+          onBlur={() =>
+            setDrafts((d) => {
+              const rest = { ...d };
+              delete rest[f.key];
+              return rest;
+            })
+          }
         />
       ))}
     </SimpleGrid>
