@@ -6,13 +6,14 @@ export function PortFields({ value, onChange }: { value: PortSettings; onChange:
     <Stack gap={4}>
       <Group grow align="start">
         <NumberInput
+          allowDecimal={false}
           label="Published ports from"
           value={value.start}
           min={0}
           max={65535}
           onChange={(v) => onChange({ ...value, start: Number(v) || 0 })}
         />
-        <NumberInput label="to" value={value.end} min={0} max={65535} onChange={(v) => onChange({ ...value, end: Number(v) || 0 })} />
+        <NumberInput allowDecimal={false} label="to" value={value.end} min={0} max={65535} onChange={(v) => onChange({ ...value, end: Number(v) || 0 })} />
         <TextInput label="Bind IP" value={value.bind_ip} onChange={(e) => onChange({ ...value, bind_ip: e.currentTarget.value })} />
       </Group>
       <Text size="xs" c="dimmed">

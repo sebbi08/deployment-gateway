@@ -35,6 +35,7 @@ export function Settings() {
       </Card>
       <Card withBorder>
         <NumberInput
+          allowDecimal={false}
           label="Audit log retention (days)"
           min={1}
           max={3650}

@@ -32,6 +32,7 @@ export function QuotaFields({ value, onChange }: { value: Quota; onChange: (q: Q
           min={0}
           step={f.decimals ? 0.1 : 1}
           decimalScale={f.decimals ? 2 : 0}
+          allowDecimal={!!f.decimals}
           onChange={(v) => {
             setDrafts((d) => ({ ...d, [f.key]: v }));
             if (typeof v === "number") {
