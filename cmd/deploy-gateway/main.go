@@ -85,6 +85,12 @@ type mountInspector interface {
 	MountSource(ctx context.Context, containerID, destination string) (string, bool, error)
 }
 
+// runningInContainer reports whether Docker's marker file exists.
+func runningInContainer(marker string) bool {
+	_, err := os.Stat(marker)
+	return err == nil
+}
+
 // checkSameMount enforces that WORKSPACES_ROOT is bind-mounted from the
 // identical host path, because the Docker daemon resolves bind sources on
 // the host. Running directly on the host passes trivially.
@@ -156,8 +162,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			return fmt.Errorf("hostname: %w", err)
 		}
 	}
-	_, statErr := os.Stat("/.dockerenv")
-	if err := checkSameMount(ctx, dc, self, root, statErr == nil); err != nil {
+	if err := checkSameMount(ctx, dc, self, root, runningInContainer("/.dockerenv")); err != nil {
 		return err
 	}
 	if out, err := exec.CommandContext(ctx, cfg.ComposeBin, "version", "--short").CombinedOutput(); err != nil {

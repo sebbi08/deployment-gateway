@@ -318,3 +318,19 @@ func TestNewServersBindsHandlersToListeners(t *testing.T) {
 		t.Fatalf("listener -> handler = %v", got)
 	}
 }
+
+// A missing /.dockerenv means "on the host"; then a failed lookup of our own
+// container is not an error.
+func TestRunningInContainer(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, ".dockerenv")
+	if runningInContainer(marker) {
+		t.Fatal("no marker file: not in a container")
+	}
+	if err := os.WriteFile(marker, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !runningInContainer(marker) {
+		t.Fatal("marker file present: in a container")
+	}
+}
