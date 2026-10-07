@@ -25,16 +25,19 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Validate version
+      - name: Validate version and branch
         run: |
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::releases are built from main only, not $GITHUB_REF"
+            exit 1
+          fi
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::version must look like 1.2.3, got '$VERSION'"
             exit 1
           fi
 
-      - uses: actions/checkout@v7
-
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
 
@@ -43,7 +46,7 @@ jobs:
           go vet ./...
           go test ./...
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: 24.18.0
           cache: npm
@@ -58,26 +61,25 @@ jobs:
 
   release:
     needs: test
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write   # push the v<version> git tag
       packages: write   # push to ghcr.io
     steps:
-      - uses: actions/checkout@v7
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Image name
         run: |
           repo="${GITHUB_REPOSITORY,,}"
           echo "IMAGE=ghcr.io/${repo}" >> "$GITHUB_ENV"
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/setup-buildx-action@v4
-
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
       - name: Refuse to overwrite an existing release
         # Fail closed: only a clear "not found" counts as absent; any other
         # registry or git error stops the release.
@@ -99,7 +101,7 @@ jobs:
             *) echo "::error::cannot check the git tags (git ls-remote exit $rc)"; exit 1 ;;
           esac
 
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: .
           platforms: linux/amd64

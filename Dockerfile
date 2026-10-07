@@ -2,14 +2,14 @@
 # Changing the version requires updating both checksums below.
 ARG COMPOSE_VERSION=v5.5.1
 
-FROM node:24.18.0-bookworm-slim AS web
+FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS web
 WORKDIR /src/web
 COPY web/package.json web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN mkdir -p ../internal/webui/dist && npm run build
 
-FROM golang:1.27 AS build
+FROM golang:1.27.1@sha256:162be5298a40ed317005c8339c6de4d10d3eef336d66dc8e9259b03ab9d3a6d2 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -30,7 +30,7 @@ ADD --chmod=0755 --checksum=sha256:732e3a84c1a0f67256ce80bc2598a24546b10ca05f9fa
 
 FROM compose-${TARGETARCH} AS compose
 
-FROM gcr.io/distroless/static-debian12
+FROM gcr.io/distroless/static-debian12@sha256:d75cdd72874d4790092fcb1b058493ecf6bb5bf2b2b897045b00ff01d91843f2
 COPY --from=compose /docker-compose /usr/local/bin/docker-compose
 COPY --from=build /out/deploy-gateway /usr/local/bin/deploy-gateway
 ENV DATA_DIR=/data DOCKER_CONFIG=/docker
