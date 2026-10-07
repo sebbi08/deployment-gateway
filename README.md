@@ -30,7 +30,7 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
    ```bash
    docker run --rm -i ghcr.io/sebbi08/deployment-gateway:0.1.0 hash-password
    ```
-4. Registry access: `docker login <registry>` on the host for every registry agents pull from. The file named by `DOCKER_CONFIG_FILE` must exist and contain inline `auths` (no `credsStore`), because it is mounted into the gateway.
+4. Registry access: create a dedicated credentials file for agent pulls, e.g. `DOCKER_CONFIG=/srv/deploy-gateway/registry docker login <registry>` (writes `registry/config.json` with inline `auths`), and set `DOCKER_CONFIG_FILE` to it. **Every workspace can pull, run and read any image these credentials can access**, so use least-privilege pull tokens that see only agent images (e.g. a bot account), never root's `~/.docker/config.json` or credentials for your own stacks' private images. Pulls also run from the host's network: agents can name registries on loopback or your LAN.
 5. Start: `cd /srv/deploy-gateway && docker compose up -d && docker logs deploy-gateway`.
 
 ### Operator checklist (manual)

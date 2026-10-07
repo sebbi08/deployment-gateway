@@ -21,13 +21,13 @@ GitHub → **Actions → Test app image → Run workflow** with a version such a
 On the gateway host:
 
 ```bash
-# Classic personal access token with scope read:packages
-echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
-grep -q credsStore ~/.docker/config.json && echo "remove credsStore: the gateway needs inline auths"
+# Token with read:packages only, ideally of a bot account that sees just the agent packages:
+# every workspace can pull any image these credentials can read.
+echo "$GHCR_TOKEN" | DOCKER_CONFIG=/srv/deploy-gateway/registry docker login ghcr.io -u <github-user> --password-stdin
 docker restart deploy-gateway
 ```
 
-The restart matters: `docker login` replaces `config.json` atomically, and a single-file bind mount keeps pointing at the old file until the container is recreated/restarted.
+`DOCKER_CONFIG_FILE` in the gateway's `.env` must point at `/srv/deploy-gateway/registry/config.json`. The restart matters: `docker login` replaces `config.json` atomically, and a single-file bind mount keeps pointing at the old file until the container is recreated/restarted.
 
 ## 3. Deploy through the gateway
 
