@@ -197,3 +197,24 @@ func TestSchemaRejectedToolCallsAreAudited(t *testing.T) {
 		t.Fatalf("audit rows = %+v (%v)", rows, err)
 	}
 }
+
+// A reverse proxy on the same host forwards to 127.0.0.1 with the public
+// Host header; the SDK's DNS-rebinding guard must not reject that. Every
+// request needs a bearer token, which a rebinding browser cannot supply.
+func TestLoopbackProxyWithPublicHost(t *testing.T) {
+	url, tok := setup(t)
+	req, _ := http.NewRequest("POST", url, strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`))
+	req.Host = "mcp.example.com"
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("Mcp-Protocol-Version", "2025-06-18")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode == http.StatusForbidden {
+		t.Fatal("loopback request with a public Host header was rejected")
+	}
+}

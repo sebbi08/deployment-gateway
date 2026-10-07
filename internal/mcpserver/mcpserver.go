@@ -154,7 +154,11 @@ const maxBody = agentauth.MaxBodyBytes
 // per-token cap on concurrent calls.
 func Handler(srv *mcp.Server, a *agentauth.Authenticator) http.Handler {
 	h := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv },
-		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: maxBody})
+		&mcp.StreamableHTTPOptions{Stateless: true, JSONResponse: true, MaxRequestBodyBytes: maxBody,
+			// Every request needs a bearer token (checked first), which a
+			// DNS-rebinding browser cannot send; the guard would only break
+			// reverse proxies that reach the gateway over loopback.
+			DisableLocalhostProtection: true})
 	return sdkauth.RequireBearerToken(a.MCPVerifier(), &sdkauth.RequireBearerTokenOptions{AllowMissingExpiration: true})(
 		a.LimitMCP(rejectBatches(h)))
 }
