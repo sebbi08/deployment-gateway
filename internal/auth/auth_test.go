@@ -167,3 +167,22 @@ func TestLimiterKeysIPv6By64(t *testing.T) {
 		t.Fatal("other prefixes must not be blocked")
 	}
 }
+
+// Session IDs are bearer credentials: unique and 256 bits long.
+func TestSessionIDsAreUniqueAndLong(t *testing.T) {
+	s := NewSessions(time.Hour)
+	seen := map[string]bool{}
+	for range 1000 {
+		id, err := s.Create("admin")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(id) < 43 {
+			t.Fatalf("session id %q is shorter than 256 bits", id)
+		}
+		if seen[id] {
+			t.Fatalf("session id %q issued twice", id)
+		}
+		seen[id] = true
+	}
+}
