@@ -21,6 +21,7 @@ const emptyDraft: Draft = { name: "", description: "", host_pattern: "", network
 /** Parses one key=value per line; the first = separates key and value. */
 export function parseLabels(text: string): { labels: Record<string, string>; errors: string[] } {
   const labels: Record<string, string> = {};
+  const lineOf: Record<string, number> = {};
   const errors: string[] = [];
   text.split("\n").forEach((raw, i) => {
     const line = raw.trim();
@@ -30,7 +31,14 @@ export function parseLabels(text: string): { labels: Record<string, string>; err
       errors.push(`Labels line ${i + 1}: expected key=value`);
       return;
     }
-    labels[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+    const key = line.slice(0, eq).trim();
+    if (key in lineOf) {
+      // Labels are a map: a second line would silently replace the first.
+      errors.push(`Labels line ${i + 1}: duplicate key "${key}" (also on line ${lineOf[key]})`);
+      return;
+    }
+    lineOf[key] = i + 1;
+    labels[key] = line.slice(eq + 1).trim();
   });
   return { labels, errors };
 }

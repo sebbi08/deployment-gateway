@@ -78,3 +78,8 @@ test("editing loads the stored template and saves changes via PUT", async () => 
     labels: { "traefik.enable": "true" },
   });
 });
+
+test("parseLabels reports duplicate keys instead of dropping one", () => {
+  const { errors } = parseLabels("traefik.http.routers.{{id}}.middlewares=auth@docker\ntraefik.http.routers.{{id}}.middlewares = compress@docker");
+  expect(errors).toEqual(['Labels line 2: duplicate key "traefik.http.routers.{{id}}.middlewares" (also on line 1)']);
+});
