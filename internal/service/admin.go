@@ -126,6 +126,11 @@ func (s *Service) SetGrants(ctx context.Context, actor string, w store.Workspace
 
 func (s *Service) UpdateWorkspace(ctx context.Context, actor string, w store.Workspace) (err error) {
 	defer s.adminTrack(ctx, actor, w.Name, "update_workspace", w, &err, time.Now())
+	// Deploys commit port claims under the same mutex; without it a claim
+	// could land between the check below and the write.
+	mu := s.wsMutex(w.Name)
+	mu.Lock()
+	defer mu.Unlock()
 	if err = w.Quota.Validate(); err != nil {
 		return validationError("quota", err.Error())
 	}
