@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -133,5 +134,15 @@ func TestJSONResponsesAreNotHTMLEscaped(t *testing.T) {
 	writeJSON(rec, 200, map[string]string{"logs": "<a> & b"})
 	if !strings.Contains(rec.Body.String(), "<a> & b") {
 		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+// The agent JSON API reads at most the stack limit plus the envelope.
+func TestRequestBodyIsLimited(t *testing.T) {
+	srv, tok := setup(t)
+	big := `{"app":"shop","stack":{"services":{"web":{"image":"a:1","environment":{"X":"` + strings.Repeat("a", 200<<10) + `"}}}}}`
+	code, m := post(t, srv, tok, "validate", big)
+	if code != http.StatusBadRequest || !strings.Contains(fmt.Sprint(m["message"]), "too large") {
+		t.Fatalf("oversize body got %d %v, want 400 too large", code, m)
 	}
 }
