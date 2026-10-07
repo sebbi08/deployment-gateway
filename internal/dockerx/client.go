@@ -200,3 +200,12 @@ func (c *Client) MountSource(ctx context.Context, containerID, destination strin
 	}
 	return "", true, nil
 }
+
+// RemoveVolume removes a volume; a volume that no longer exists is fine.
+func (c *Client) RemoveVolume(ctx context.Context, name string) error {
+	_, err := c.api.VolumeRemove(ctx, name, client.VolumeRemoveOptions{})
+	if cerrdefs.IsNotFound(err) {
+		return nil
+	}
+	return err
+}

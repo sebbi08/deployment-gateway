@@ -138,9 +138,10 @@ type FakeDocker struct {
 	Networks   map[string]bool
 	// Images maps an image reference to its LABELs (default: none). Wire
 	// merges them into created containers like Docker does.
-	Images  map[string]map[string]string
-	LogsOut string
-	touched []string
+	Images         map[string]map[string]string
+	LogsOut        string
+	touched        []string
+	removedVolumes []string
 }
 
 func NewFakeDocker() *FakeDocker {
@@ -342,4 +343,18 @@ func Wire(c *FakeCompose, d *FakeDocker) {
 			}
 		}
 	}
+}
+
+func (d *FakeDocker) RemoveVolume(_ context.Context, name string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.removedVolumes = append(d.removedVolumes, name)
+	return nil
+}
+
+// RemovedVolumes lists the volumes removed through RemoveVolume.
+func (d *FakeDocker) RemovedVolumes() []string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return slices.Clone(d.removedVolumes)
 }

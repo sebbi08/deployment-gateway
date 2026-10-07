@@ -37,7 +37,7 @@ Git/Dockerfile builds (agents build images in their own CI/CD), image allowlists
 | Agent input model | JSON object shaped like a strict compose subset; parsed with unknown-field rejection; re-rendered by the gateway |
 | Execution | Gateway renders `docker-compose.yml` into the app folder and runs the standalone `docker compose` v2 binary with fixed argv |
 | Folder model | Managed workspaces under `WORKSPACES_ROOT`; admin chooses the workspace name only |
-| Volumes | Bind mounts only, always under `<WORKSPACES_ROOT>/<ws>/<app>/data/<svc>/`; no named volumes |
+| Volumes | Bind mounts only, always under `<WORKSPACES_ROOT>/<ws>/<app>/data/<svc>/`; no named volumes. Anonymous volumes from an image's `VOLUME` are allowed; the gateway removes them on app delete, workspace delete, orphan removal and when a redeploy stops mounting them |
 | Images | Unrestricted; explicit tag or digest required, `:latest` rejected; always pulled on deploy |
 | Registry auth | Host's `~/.docker/config.json` mounted read-only (inline `auths` only; credential helpers unsupported) |
 | Networking | One private network per app stack; only services with `expose` join the template's networks; outbound internet allowed |

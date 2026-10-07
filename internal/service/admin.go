@@ -185,11 +185,17 @@ func (s *Service) DeleteWorkspace(ctx context.Context, actor string, w store.Wor
 	if err != nil {
 		return err
 	}
+	ids := make([]string, 0, len(leftovers))
 	for _, c := range leftovers {
-		if err = s.Docker.RemoveContainer(ctx, c.ID); err != nil {
+		ids = append(ids, c.ID)
+	}
+	vols := s.anonymousVolumes(ctx, ids)
+	for _, id := range ids {
+		if err = s.Docker.RemoveContainer(ctx, id); err != nil {
 			return err
 		}
 	}
+	s.removeVolumes(ctx, vols, nil)
 	if err = os.RemoveAll(dir); err != nil {
 		return err
 	}
@@ -283,7 +289,12 @@ func (s *Service) RemoveOrphan(ctx context.Context, actor, id string) (err error
 	}
 	for _, o := range orphans {
 		if o.ID == id {
-			return s.Docker.RemoveContainer(ctx, id)
+			vols := s.anonymousVolumes(ctx, []string{id})
+			if err := s.Docker.RemoveContainer(ctx, id); err != nil {
+				return err
+			}
+			s.removeVolumes(ctx, vols, nil)
+			return nil
 		}
 	}
 	return notFoundError("orphan container")

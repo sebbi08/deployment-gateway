@@ -8,7 +8,7 @@ Design: `docs/superpowers/specs/2026-10-01-deploy-gateway-design.md`.
 
 - Agents never send compose files, labels, volume paths, capabilities or networks. They send a JSON stack (image, command, env, exposure template, ports in their range, one volume path per service, healthcheck, resources).
 - Every container runs with `cap_drop: [ALL]`, `no-new-privileges`, read-only root fs (opt-out per service), `/tmp` tmpfs, memory/CPU/pids limits, no swap.
-- Volumes are bind mounts under `<WORKSPACES_ROOT>/<workspace>/<app>/data/<service>` only.
+- Volumes are bind mounts under `<WORKSPACES_ROOT>/<workspace>/<app>/data/<service>` only. Paths an image declares with `VOLUME` (e.g. postgres) get anonymous Docker volumes in Docker's own storage, not in the workspace folder (so backups of the folder miss them); the gateway removes them when the app is deleted or a redeploy stops using them.
 - Three checks: input allowlist → post-render verifier → runtime inspect (containers are removed on any violation and a critical audit event is written).
 - Images are pulled before any container is created and their `LABEL`s are inspected: Docker merges image labels into container labels, so an image carrying a key under `traefik.`, `deploy-gateway.`, `com.docker.compose.` or the first segment of any stored template's label keys (e.g. `wud.` for a template label `wud.watch`) is rejected with `validation_failed` (`services.<svc>.image`). The runtime inspect additionally rejects any container label in those namespaces (except `com.docker.compose.*`, which compose sets itself) that the gateway did not render.
 - Tokens are per workspace, stored as SHA-256, revocable; every call is audited with env values redacted.

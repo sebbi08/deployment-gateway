@@ -99,6 +99,7 @@ func (s *Service) deleteApp(ctx context.Context, ws store.Workspace, app string)
 	}
 	defer unlock()
 	ctx = context.WithoutCancel(ctx)
+	vols := s.appVolumes(ctx, ws.Name, app)
 	file := s.composeFile(ws.Name, app)
 	if _, statErr := os.Stat(file); statErr == nil {
 		if out, err := s.Compose.Down(ctx, file, names.Project(ws.Name, app)); err != nil {
@@ -114,6 +115,7 @@ func (s *Service) deleteApp(ctx context.Context, ws store.Workspace, app string)
 			return err
 		}
 	}
+	s.removeVolumes(ctx, vols, nil)
 	dir := s.appDir(ws.Name, app)
 	if filepath.Dir(dir) != s.workspaceDir(ws.Name) {
 		return errors.New("refusing to remove unexpected path " + dir)

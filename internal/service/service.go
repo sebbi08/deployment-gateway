@@ -35,6 +35,7 @@ type Docker interface {
 	ImageLabels(ctx context.Context, ref string) (map[string]string, error)
 	NetworkExists(ctx context.Context, name string) (bool, error)
 	RemoveContainer(ctx context.Context, id string) error
+	RemoveVolume(ctx context.Context, name string) error
 }
 
 // Principal is the authenticated caller. Workspace comes from the token

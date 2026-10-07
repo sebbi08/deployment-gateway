@@ -75,6 +75,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		return AppStatus{}, err
 	}
 	file := s.composeFile(ws.Name, app)
+	volsBefore := s.appVolumes(bg, ws.Name, app)
 	upStarted := time.Now()
 	out, upErr := s.Compose.Up(bg, file, project)
 	// Layer 3 runs even when up failed: --wait can fail while containers exist.
@@ -83,6 +84,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		msg := "deployment rejected by runtime security check; containers were removed"
 		// Remove the containers right away: compose down waits for the global
 		// compose slot, possibly behind other tenants' operations.
+		maps.Copy(volsBefore, s.appVolumes(bg, ws.Name, app))
 		removeErr := s.removeAppContainers(bg, ws.Name, app)
 		if removeErr != nil {
 			detail += " | direct container removal failed: " + removeErr.Error()
@@ -94,6 +96,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 				msg = "deployment rejected by runtime security check; removing containers failed - an administrator must intervene"
 			}
 		}
+		s.removeVolumes(bg, volsBefore, nil)
 		_ = s.Store.RecordDeploy(bg, appRec.ID, CodeSecurity)
 		return AppStatus{}, &Error{Code: CodeSecurity, Message: msg, detail: detail + " | " + downOut, critical: true}
 	}
@@ -117,6 +120,8 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	if err := s.Store.RecordDeploy(bg, appRec.ID, "ok"); err != nil {
 		return AppStatus{}, err
 	}
+	// Volumes of replaced or removed containers that nothing mounts any more.
+	s.removeVolumes(bg, volsBefore, s.appVolumes(bg, ws.Name, app))
 	return s.status(ctx, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
 }
 

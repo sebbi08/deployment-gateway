@@ -72,6 +72,9 @@ type RuntimePolicy struct {
 // names and live in Docker's own storage; they grant no host access.
 var anonymousVolumeRe = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
+// IsAnonymousVolume reports whether name looks like an anonymous volume.
+func IsAnonymousVolume(name string) bool { return anonymousVolumeRe.MatchString(name) }
+
 // CheckRuntime verifies a running container's real configuration (spec §10
 // layer 3) and returns human-readable violations.
 func CheckRuntime(f Facts, p RuntimePolicy) []string {
