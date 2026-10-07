@@ -75,3 +75,19 @@ func TestRootOwnedDataFolderIsPrivate(t *testing.T) {
 		}
 	}
 }
+
+// Without CAP_DAC_OVERRIDE a root container cannot write a folder owned by
+// a previous `user`; dropping `user` hands the folder back to root.
+func TestDroppingUserReturnsDataFolderToRoot(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	h.chowns = nil
+	noUser := strings.Replace(exampleStack, `"user": "999:999", `, "", 1)
+	if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, noUser)}); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(h.chowns, "db 0:0") {
+		t.Fatalf("data/db not returned to root: %v", h.chowns)
+	}
+}

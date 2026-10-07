@@ -336,13 +336,16 @@ func (s *Service) prepareDirs(ws, app string, st *stack.Stack) error {
 		if err := os.Chmod(dir, mode); err != nil {
 			return err
 		}
+		// Owned by the container's user, or by root without one (a previous
+		// deploy may have set another user).
+		uid, gid := 0, 0
 		if svc.User != "" {
 			uidStr, gidStr, _ := strings.Cut(svc.User, ":")
-			uid, _ := strconv.Atoi(uidStr)
-			gid, _ := strconv.Atoi(gidStr)
-			if err := s.Chown(dir, uid, gid); err != nil {
-				return fmt.Errorf("chown volume of %s: %w", name, err)
-			}
+			uid, _ = strconv.Atoi(uidStr)
+			gid, _ = strconv.Atoi(gidStr)
+		}
+		if err := s.Chown(dir, uid, gid); err != nil {
+			return fmt.Errorf("chown volume of %s: %w", name, err)
 		}
 	}
 	return nil
