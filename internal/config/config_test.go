@@ -133,3 +133,15 @@ func TestLoadExtraRuntimes(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadReservedLabelPrefixes(t *testing.T) {
+	base := map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": validHash, "RESERVED_LABEL_PREFIXES": "diun., homepage"}
+	c, err := Load(env(base))
+	if err != nil || len(c.ReservedLabelPrefixes) != 2 || c.ReservedLabelPrefixes[0] != "diun." || c.ReservedLabelPrefixes[1] != "homepage." {
+		t.Fatalf("RESERVED_LABEL_PREFIXES: %+v %v", c.ReservedLabelPrefixes, err)
+	}
+	base["RESERVED_LABEL_PREFIXES"] = "bad prefix"
+	if _, err := Load(env(base)); err == nil || !strings.Contains(err.Error(), "RESERVED_LABEL_PREFIXES") {
+		t.Fatalf("invalid prefix accepted: %v", err)
+	}
+}

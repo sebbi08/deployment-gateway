@@ -34,8 +34,13 @@ type planned struct {
 // com.docker.compose.* to containers, so that prefix is checked on images
 // only. Every stored template's namespaces are reserved as well.
 var (
-	fixedImagePrefixes   = []string{"traefik.", "deploy-gateway.", "com.docker.compose."}
-	fixedRuntimePrefixes = []string{"traefik.", "deploy-gateway."}
+	// Namespaces of label-driven tools that commonly run with the Docker
+	// socket and act on any container's labels (ofelia/chadburn job-run
+	// labels even start new containers with arbitrary options).
+	labelDrivenTools = []string{"ofelia.", "chadburn.", "com.centurylinklabs.watchtower.", "docker-volume-backup.", "swarm.cronjob."}
+
+	fixedImagePrefixes   = append([]string{"traefik.", "deploy-gateway.", "com.docker.compose."}, labelDrivenTools...)
+	fixedRuntimePrefixes = append([]string{"traefik.", "deploy-gateway."}, labelDrivenTools...)
 )
 
 // reservedPrefixes returns the fixed prefixes plus the namespaces of every
@@ -128,8 +133,8 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	}
 	return &planned{app: app, stack: st, out: out, policy: pol, defaults: defaults, memBytes: mem, cpus: cpus,
 		claims:          claimsFrom(app, out.Ports),
-		imagePrefixes:   reservedPrefixes(fixedImagePrefixes, all),
-		runtimePrefixes: reservedPrefixes(fixedRuntimePrefixes, all)}, nil
+		imagePrefixes:   reservedPrefixes(slices.Concat(fixedImagePrefixes, s.ExtraReservedPrefixes), all),
+		runtimePrefixes: reservedPrefixes(slices.Concat(fixedRuntimePrefixes, s.ExtraReservedPrefixes), all)}, nil
 }
 
 func claimsFrom(app string, ports []render.PublishedPort) []store.PortClaim {

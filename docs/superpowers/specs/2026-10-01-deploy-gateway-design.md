@@ -372,6 +372,7 @@ Audit params redact environment **values** (`***`); keys are kept. Params are st
 | `DEPLOY_CONCURRENCY` | `1` | env only |
 | `FILE_OWNER` | empty | optional numeric `uid:gid`; group `gid` gets read access to gateway-managed folders and compose files (owner stays root) |
 | `EXTRA_RUNTIMES` | empty | comma-separated hardened container runtimes allowed besides runc (e.g. `runsc`); nvidia runtimes are rejected |
+| `RESERVED_LABEL_PREFIXES` | empty | further label namespaces (label-driven host tools) that images and containers must not carry, besides the built-in traefik., deploy-gateway., com.docker.compose., ofelia., chadburn., com.centurylinklabs.watchtower., docker-volume-backup., swarm.cronjob. |
 
 ## 17. Deployment
 

@@ -63,7 +63,10 @@ type Service struct {
 	FileOwner *Owner
 	// ExtraRuntimes are container runtimes allowed besides runc (EXTRA_RUNTIMES).
 	ExtraRuntimes []string
-	Logger        *slog.Logger
+	// ExtraReservedPrefixes are further label namespaces that images and
+	// containers must not carry (RESERVED_LABEL_PREFIXES).
+	ExtraReservedPrefixes []string
+	Logger                *slog.Logger
 
 	wsLocks sync.Map // workspace name -> *sync.Mutex
 	// adminMu serialises admin changes whose uniqueness checks compare with

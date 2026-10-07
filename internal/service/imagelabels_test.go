@@ -136,3 +136,28 @@ func TestDeployRuntimeRejectsUnrenderedReservedLabel(t *testing.T) {
 		})
 	}
 }
+
+// Label-driven host tools with Docker socket access act on image labels;
+// ofelia's job-run labels, for example, start new containers with arbitrary
+// options. Their namespaces are reserved like Traefik's, and operators can
+// reserve more.
+func TestDeployRejectsLabelDrivenToolNamespaces(t *testing.T) {
+	for _, tc := range []struct{ key, extra string }{
+		{"ofelia.job-run.pwn.image", ""},
+		{"chadburn.job-run.pwn.volume", ""},
+		{"com.centurylinklabs.watchtower.lifecycle.pre-update", ""},
+		{"docker-volume-backup.archive-pre", ""},
+		{"mytool.run", "mytool."},
+	} {
+		h := newHarness(t)
+		if tc.extra != "" {
+			h.svc.ExtraReservedPrefixes = []string{tc.extra}
+		}
+		p := h.workspace("alice", 20000, 20099)
+		h.docker.Images["postgres:16.4"] = map[string]string{tc.key: "x"}
+		_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+		if code(err) != service.CodeValidation || !strings.Contains(err.Error(), tc.key) {
+			t.Errorf("%s: %v", tc.key, err)
+		}
+	}
+}

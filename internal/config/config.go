@@ -34,7 +34,12 @@ type Config struct {
 	FileGID      int
 	// EXTRA_RUNTIMES: hardened runtimes allowed besides runc (e.g. runsc).
 	ExtraRuntimes []string
+	// RESERVED_LABEL_PREFIXES: label namespaces of further label-driven tools
+	// on the host; images and containers must not carry them.
+	ReservedLabelPrefixes []string
 }
+
+var labelPrefixRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,127}$`)
 
 var runtimeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
@@ -99,6 +104,19 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, "EXTRA_RUNTIMES: nvidia runtimes are not allowed (their hooks act on agent-controlled environment)")
 		default:
 			c.ExtraRuntimes = append(c.ExtraRuntimes, r)
+		}
+	}
+	for _, p := range strings.Split(getenv("RESERVED_LABEL_PREFIXES"), ",") {
+		p = strings.ToLower(strings.TrimSpace(p))
+		switch {
+		case p == "":
+		case !labelPrefixRe.MatchString(p):
+			errs = append(errs, fmt.Sprintf("RESERVED_LABEL_PREFIXES: invalid prefix %q", p))
+		default:
+			if !strings.HasSuffix(p, ".") {
+				p += "."
+			}
+			c.ReservedLabelPrefixes = append(c.ReservedLabelPrefixes, p)
 		}
 	}
 	if s := getenv("DEPLOY_CONCURRENCY"); s != "" {
