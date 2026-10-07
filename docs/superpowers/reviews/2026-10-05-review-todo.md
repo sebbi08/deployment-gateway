@@ -278,7 +278,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: TestSessionIDsAreUniqueAndLong kills both the 16-bit and the constant-ID mutant.
 - [x] **T13** No test fails when the token hash covers only the displayed 12-char prefix — [internal/auth/token.go:26](../../../internal/auth/token.go#L26)
   - Done: TestHashTokenCoversWholeToken: same-prefix and last-char-changed tokens hash differently; prefix-only hash mutant fails.
-- [ ] **T14** No test fails when the admin body limit (public login endpoint) is removed — [internal/admin/server.go:260](../../../internal/admin/server.go#L260)
+- [x] **T14** No test fails when the admin body limit (public login endpoint) is removed — [internal/admin/server.go:260](../../../internal/admin/server.go#L260)
+  - Done: TestLoginBodyIsLimited: a 1 MiB+ login body gets 400 too large (mutant: 401 wrong password).
 - [ ] **T15** No test fails when the agent JSON API body limit is lifted — [internal/api/api.go:82](../../../internal/api/api.go#L82)
 - [ ] **T16** No test fails when serve() swaps admin trust wiring (AdminTrustedProxies, listener handlers) — [cmd/deploy-gateway/main.go:181](../../../cmd/deploy-gateway/main.go#L181)
 - [ ] **T17** 65 further low/info surviving mutants (verify, stack, tmpl, dockerx, service, auth) — add tests in bulk
