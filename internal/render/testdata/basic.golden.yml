@@ -34,6 +34,8 @@ services:
                 - "pg_isready"
             interval: 10s
             retries: 5
+            start_period: 10s
+            start_interval: 2s
         networks:
             - dg-alice-shop
         labels:
@@ -77,6 +79,8 @@ services:
                 - "http://localhost:8080/health"
             interval: 30s
             retries: 3
+            start_period: 30s
+            start_interval: 2s
         depends_on:
             alice-shop-db:
                 condition: service_healthy

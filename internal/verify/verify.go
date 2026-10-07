@@ -435,7 +435,9 @@ func checkHealth(key string, raw any, v *Violations) {
 		return
 	}
 	for _, k := range sortedKeys(m) {
-		if k != "test" && k != "interval" && k != "retries" {
+		switch k {
+		case "test", "interval", "retries", "start_period", "start_interval":
+		default:
 			v.addf("%s: healthcheck key %q not allowed", key, k)
 		}
 	}

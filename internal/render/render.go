@@ -100,7 +100,11 @@ func Render(in Input) (Output, error) {
 			if retries == 0 {
 				retries = 3
 			}
-			cs.Healthcheck = &composeHealth{Test: qstrs(append([]string{"CMD"}, escapeAll(hc.Command)...)), Interval: interval, Retries: retries}
+			// Docker runs the first probe only after a full interval; during
+			// start_period it probes every start_interval instead, so a long
+			// interval does not outlast up --wait.
+			cs.Healthcheck = &composeHealth{Test: qstrs(append([]string{"CMD"}, escapeAll(hc.Command)...)), Interval: interval, Retries: retries,
+				StartPeriod: interval, StartInterval: "2s"}
 		}
 		if len(svc.DependsOn) > 0 {
 			cs.DependsOn = map[string]composeDepends{}

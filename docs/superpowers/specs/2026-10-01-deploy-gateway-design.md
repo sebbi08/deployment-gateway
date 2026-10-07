@@ -212,7 +212,7 @@ The admin decides hostnames via `host_pattern`; the admin UI rejects any templat
 - `user` if given
 - `volumes`: at most one bind `<WORKSPACES_ROOT>/<ws>/<app>/data/<svc>:<volume.path>`
 - `ports` in long syntax: `{target, published, host_ip: <workspace bind IP>, protocol}` — never short syntax, never ranges
-- `healthcheck` with `test: ["CMD", ...]`
+- `healthcheck` with `test: ["CMD", ...]`, `start_period` equal to the interval and `start_interval: 2s`, so the first probe does not wait a full interval (which could exceed the deploy wait)
 - `depends_on` with `condition: service_healthy` if the dependency has a healthcheck, else `service_started` (keys mapped to full names)
 - `networks`: `dg-<ws>-<app>` (no aliases) plus, for exposed services, the template's networks (no aliases)
 - `labels`: `deploy-gateway.workspace`, `deploy-gateway.app`, `deploy-gateway.service`, `deploy-gateway.managed=true`, plus the rendered template labels

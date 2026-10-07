@@ -190,7 +190,7 @@ func TestRenderDependsOnAndHealthcheck(t *testing.T) {
 		t.Errorf("worker depends_on = %v", got)
 	}
 	hc := service(t, doc, "alice-shop-db")["healthcheck"]
-	if !reflect.DeepEqual(hc, map[string]any{"test": []any{"CMD", "pg_isready"}, "interval": "10s", "retries": 5}) {
+	if !reflect.DeepEqual(hc, map[string]any{"test": []any{"CMD", "pg_isready"}, "interval": "10s", "retries": 5, "start_period": "10s", "start_interval": "2s"}) {
 		t.Errorf("db healthcheck = %v", hc)
 	}
 	hc = service(t, doc, "alice-shop-web")["healthcheck"]
@@ -257,5 +257,19 @@ func TestRenderOutputLabelsAreUnescaped(t *testing.T) {
 	}
 	if got := service(t, parse(t, out.YAML), "alice-shop-web")["labels"].(map[string]any)["x.cost"]; got != "$$5" {
 		t.Fatalf("yaml label must stay escaped, got %v", got)
+	}
+}
+
+// Docker runs the first probe only after a full interval; with an interval
+// near DEPLOY_TIMEOUT, up --wait gives up first. During start_period probes
+// run every start_interval.
+func TestRenderHealthcheckProbesEarly(t *testing.T) {
+	out, err := Render(testInput(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	hc := parse(t, out.YAML)["services"].(map[string]any)["alice-shop-db"].(map[string]any)["healthcheck"].(map[string]any)
+	if hc["start_period"] != "10s" || hc["start_interval"] != "2s" {
+		t.Fatalf("healthcheck = %v, want start_period = interval (10s) and start_interval 2s", hc)
 	}
 }

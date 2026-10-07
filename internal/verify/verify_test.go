@@ -238,3 +238,15 @@ func TestVerifyRejectsMultipleDocuments(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 }
+
+func TestHealthcheckStartKeysAllowed(t *testing.T) {
+	doc, p := setup(t)
+	ok := strings.Replace(doc, "      retries: 3\n", "      retries: 3\n      start_period: 30s\n      start_interval: 2s\n", 1)
+	if err := Verify([]byte(ok), p); err != nil {
+		t.Fatalf("start_period/start_interval rejected: %v", err)
+	}
+	bad := strings.Replace(doc, "      retries: 3\n", "      retries: 3\n      timeout: 1s\n", 1)
+	if err := Verify([]byte(bad), p); err == nil {
+		t.Fatal("other healthcheck keys must stay rejected")
+	}
+}

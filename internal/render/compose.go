@@ -59,9 +59,11 @@ type composePort struct {
 }
 
 type composeHealth struct {
-	Test     []qstr `yaml:"test"`
-	Interval string `yaml:"interval"`
-	Retries  int    `yaml:"retries"`
+	Test          []qstr `yaml:"test"`
+	Interval      string `yaml:"interval"`
+	Retries       int    `yaml:"retries"`
+	StartPeriod   string `yaml:"start_period"`
+	StartInterval string `yaml:"start_interval"`
 }
 
 type composeDepends struct {
