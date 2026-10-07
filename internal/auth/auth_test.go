@@ -186,3 +186,26 @@ func TestSessionIDsAreUniqueAndLong(t *testing.T) {
 		seen[id] = true
 	}
 }
+
+// The hash covers the whole token, not just the displayed prefix: tokens
+// that share the prefix must hash differently.
+func TestHashTokenCoversWholeToken(t *testing.T) {
+	tok, _, prefix, err := GenerateToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := prefix + strings.Repeat("A", len(tok)-len(prefix))
+	if other == tok {
+		other = prefix + strings.Repeat("B", len(tok)-len(prefix))
+	}
+	if HashToken(tok) == HashToken(other) {
+		t.Fatal("tokens with the same prefix hash alike")
+	}
+	last := tok[:len(tok)-1] + "x"
+	if tok[len(tok)-1] == 'x' {
+		last = tok[:len(tok)-1] + "y"
+	}
+	if HashToken(tok) == HashToken(last) {
+		t.Fatal("the last token character does not change the hash")
+	}
+}
