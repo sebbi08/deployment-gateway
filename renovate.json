@@ -1,0 +1,16 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "groupName": "patch-all",
+      "matchUpdateTypes": ["patch", "digest"],
+      "automerge": true
+    },
+    {
+      "groupName": "minor-updates-npm",
+      "matchDatasources": ["npm"],
+      "matchUpdateTypes": ["minor"]
+    }
+  ]
+}
