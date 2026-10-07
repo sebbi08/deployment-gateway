@@ -125,6 +125,24 @@ func TestIntegrationDeployLifecycle(t *testing.T) {
 		t.Fatalf("cross-workspace logs: %v", err)
 	}
 
+	// A second app of the workspace may not publish the same host port.
+	clash := mustStack(t, `{"services": {"nginx": {"image": "nginxinc/nginx-unprivileged:1.27-alpine",
+		"ports": [{"container": 8080, "host": 28080}]}}}`)
+	if _, err := svc.Deploy(ctx, p, service.DeployInput{App: "web2", Stack: clash}); code(err) != service.CodePortTaken {
+		t.Fatalf("port conflict: %v", err)
+	}
+
+	stopped, err := svc.Stop(ctx, p, service.ServiceInput{App: "web"})
+	if err != nil {
+		t.Fatalf("stop: %v", err)
+	}
+	if stopped.Services[0].State == "running" {
+		t.Fatalf("still running after stop: %+v", stopped)
+	}
+	if _, err := http.Get("http://127.0.0.1:28080/"); err == nil {
+		t.Fatal("published port still answers after stop")
+	}
+
 	if _, err := svc.Delete(ctx, p, service.DeleteInput{App: "web", Confirm: "web"}); err != nil {
 		t.Fatalf("delete: %v", err)
 	}

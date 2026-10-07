@@ -1,6 +1,7 @@
 package verify
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -248,5 +249,17 @@ func TestHealthcheckStartKeysAllowed(t *testing.T) {
 	bad := strings.Replace(doc, "      retries: 3\n", "      retries: 3\n      timeout: 1s\n", 1)
 	if err := Verify([]byte(bad), p); err == nil {
 		t.Fatal("other healthcheck keys must stay rejected")
+	}
+}
+
+// Every forbidden key is rejected on its own (spec §19).
+func TestEveryForbiddenKeyIsRejected(t *testing.T) {
+	doc, p := setup(t)
+	for k := range forbiddenKeys {
+		bad := strings.Replace(doc, "  alice-shop-web:\n", "  alice-shop-web:\n    "+k+": x\n", 1)
+		err := Verify([]byte(bad), p)
+		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("forbidden key %q", k)) {
+			t.Errorf("%s: %v", k, err)
+		}
 	}
 }

@@ -245,3 +245,37 @@ func TestLogsToolSendsLogsOnceAsText(t *testing.T) {
 		t.Fatalf("text content differs from the logs")
 	}
 }
+
+// Every tool works over MCP, which pins the input schemas inferred from the
+// Go types (spec §19).
+func TestEveryToolOverStreamableHTTP(t *testing.T) {
+	url, tok := setup(t)
+	cs, err := connect(t, url, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	ctx := context.Background()
+	stack := map[string]any{"services": map[string]any{"web": map[string]any{"image": "nginx:1.27.0"}}}
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"whoami", map[string]any{}},
+		{"list_templates", map[string]any{}},
+		{"validate", map[string]any{"app": "shop", "stack": stack}},
+		{"deploy", map[string]any{"app": "shop", "stack": stack}},
+		{"list", map[string]any{}},
+		{"logs", map[string]any{"app": "shop", "service": "web", "tail": 10}},
+		{"restart", map[string]any{"app": "shop"}},
+		{"restart", map[string]any{"app": "shop", "service": "web"}},
+		{"stop", map[string]any{"app": "shop", "service": "web"}},
+		{"stop", map[string]any{"app": "shop"}},
+		{"delete", map[string]any{"app": "shop", "confirm": "shop"}},
+	} {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: c.tool, Arguments: c.args})
+		if err != nil || res.IsError {
+			t.Fatalf("%s %v: %v %+v", c.tool, c.args, err, res)
+		}
+	}
+}
