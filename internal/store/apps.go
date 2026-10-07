@@ -212,3 +212,27 @@ func (s *Store) WorkspaceUsage(ctx context.Context, wsID int64, excludeApp strin
 		FROM apps WHERE workspace_id=? AND name != ?`, wsID, excludeApp).Scan(&u.Apps, &u.MemoryBytes, &u.CPUs)
 	return u, err
 }
+
+// AppHosts returns the public hosts of every app, keyed "<workspace>/<app>".
+func (s *Store) AppHosts(ctx context.Context) (map[string][]string, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT w.name, a.name, a.hosts_json FROM apps a JOIN workspaces w ON w.id = a.workspace_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string][]string{}
+	for rows.Next() {
+		var ws, app, hostsJSON string
+		if err := rows.Scan(&ws, &app, &hostsJSON); err != nil {
+			return nil, err
+		}
+		var hosts map[string]string
+		if err := json.Unmarshal([]byte(hostsJSON), &hosts); err != nil {
+			return nil, err
+		}
+		for _, h := range hosts {
+			out[ws+"/"+app] = append(out[ws+"/"+app], h)
+		}
+	}
+	return out, rows.Err()
+}

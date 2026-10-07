@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -87,6 +88,13 @@ func (s *Service) SaveTemplate(ctx context.Context, actor string, id int64, t tm
 	}
 	if err = tmpl.Validate(t, others); err != nil {
 		return 0, &Error{Code: CodeValidation, Message: err.Error()}
+	}
+	for _, o := range all {
+		if o.ID == id && o.Template.HostPattern != t.HostPattern {
+			if err = s.refuseWhileHostsInUse(ctx, o.Template, "change the host pattern of"); err != nil {
+				return 0, err
+			}
+		}
 	}
 	for _, n := range t.Networks {
 		ok, err := s.Docker.NetworkExists(ctx, n)
@@ -218,6 +226,11 @@ func (s *Service) RevokeToken(ctx context.Context, actor string, w store.Workspa
 
 func (s *Service) DeleteTemplate(ctx context.Context, actor string, id int64) (err error) {
 	defer s.adminTrack(ctx, actor, "", "delete_template", map[string]int64{"id": id}, &err, time.Now())
+	if st, gerr := s.Store.GetTemplate(ctx, id); gerr == nil {
+		if err = s.refuseWhileHostsInUse(ctx, st.Template, "delete"); err != nil {
+			return err
+		}
+	}
 	err = s.Store.DeleteTemplate(ctx, id)
 	if errors.Is(err, store.ErrInUse) {
 		return validationError("template", "template is granted to at least one workspace; revoke the grants first")
@@ -288,4 +301,31 @@ func (s *Service) UpdateSettings(ctx context.Context, actor string, q store.Quot
 		return err
 	}
 	return s.Store.SetAuditRetentionDays(ctx, retentionDays)
+}
+
+// refuseWhileHostsInUse rejects a template change that could break host
+// uniqueness: deployed apps keep the hosts rendered from the old pattern, so
+// another workspace could later render the same host. Template suffixes
+// never overlap, so a host belongs to t when it ends with t's suffix.
+func (s *Service) refuseWhileHostsInUse(ctx context.Context, t tmpl.Template, action string) error {
+	suffix := tmpl.HostSuffix(t.HostPattern)
+	if suffix == "" {
+		return nil
+	}
+	all, err := s.Store.AppHosts(ctx)
+	if err != nil {
+		return err
+	}
+	var apps []string
+	for app, hosts := range all {
+		if slices.ContainsFunc(hosts, func(h string) bool { return strings.HasSuffix(h, "."+suffix) }) {
+			apps = append(apps, app)
+		}
+	}
+	if len(apps) == 0 {
+		return nil
+	}
+	slices.Sort(apps)
+	return validationError("host_pattern", fmt.Sprintf("cannot %s template %q while apps use its hosts (%s); redeploy them without this template or delete them first",
+		action, t.Name, strings.Join(apps, ", ")))
 }

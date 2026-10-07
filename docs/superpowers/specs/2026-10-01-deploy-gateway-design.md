@@ -184,7 +184,7 @@ labels:
 - Placeholders: `{{workspace}}`, `{{app}}`, `{{service}}`, `{{id}}`, `{{host}}`, `{{port}}`. `host_pattern` may use only `{{workspace}}`, `{{app}}`, `{{service}}`. Unknown placeholders are rejected on save. Rendering is plain string substitution (no template language).
 - All substituted values come from validated names, except `{{port}}` (validated integer).
 - Rendered host must be a valid DNS name, each label ≤ 63 chars.
-- Save-time checks: networks exist in Docker, are not `host`, `none`, or `bridge`, and do not start with `dg-` (reserved for per-app networks); label keys must not start with `deploy-gateway.` or with a placeholder; labels using `{{host}}` require a `host_pattern`; template in use cannot be deleted.
+- Save-time checks: networks exist in Docker, are not `host`, `none`, or `bridge`, and do not start with `dg-` (reserved for per-app networks); label keys must not start with `deploy-gateway.` or with a placeholder; labels using `{{host}}` require a `host_pattern`; template in use cannot be deleted; while deployed apps hold hosts under a template's suffix, its host pattern cannot be changed and it cannot be deleted (those apps keep their old hosts until redeployed).
 
 ### Hostname uniqueness (validated in the admin UI)
 

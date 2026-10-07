@@ -248,3 +248,38 @@ func TestUpdateWorkspaceRefusesBindIPChangeWithPublishedPorts(t *testing.T) {
 		t.Fatalf("bind IP change without published ports: %v", err)
 	}
 }
+
+// Hosts are unique by construction only for the current template patterns.
+// Changing the pattern of a template, or deleting it, while apps still hold
+// hosts under its suffix lets another workspace claim a running app's host.
+func TestTemplateHostChangesRefusedWhileAppsHoldHosts(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	stored, err := h.st.GetTemplate(h.ctx, h.tplID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reordered := stored.Template
+	reordered.HostPattern = "{{workspace}}.{{app}}.apps.example.com"
+	if _, err := h.svc.SaveTemplate(h.ctx, "admin", h.tplID, reordered); code(err) != service.CodeValidation || !strings.Contains(err.Error(), "alice/shop") {
+		t.Fatalf("pattern change with deployed hosts: %v", err)
+	}
+	same := stored.Template
+	same.Description = "edited"
+	if _, err := h.svc.SaveTemplate(h.ctx, "admin", h.tplID, same); err != nil {
+		t.Fatalf("edit without a pattern change must be allowed: %v", err)
+	}
+	if err := h.svc.SetGrants(h.ctx, "admin", p.Workspace, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.DeleteTemplate(h.ctx, "admin", h.tplID); code(err) != service.CodeValidation || !strings.Contains(err.Error(), "alice/shop") {
+		t.Fatalf("delete with deployed hosts: %v", err)
+	}
+	if _, err := h.svc.Delete(h.ctx, p, service.DeleteInput{App: "shop", Confirm: "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.svc.DeleteTemplate(h.ctx, "admin", h.tplID); err != nil {
+		t.Fatalf("delete after the app is gone: %v", err)
+	}
+}
