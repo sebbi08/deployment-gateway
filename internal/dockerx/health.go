@@ -17,3 +17,12 @@ func healthFromStatus(status string) string {
 	}
 	return ""
 }
+
+// normalizeHealth maps Docker 29's "none" (no healthcheck) to "", the value
+// older daemons report, so callers see one representation.
+func normalizeHealth(h string) string {
+	if h == "none" {
+		return ""
+	}
+	return h
+}

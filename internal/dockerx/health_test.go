@@ -42,3 +42,13 @@ func TestTailWriterKeepsNewestLines(t *testing.T) {
 		t.Fatalf("untruncated output changed: %q", small.String())
 	}
 }
+
+// Docker 29+ reports "none" for containers without a healthcheck, older
+// daemons nothing; both mean "no health state".
+func TestNormalizeHealth(t *testing.T) {
+	for in, want := range map[string]string{"none": "", "": "", "healthy": "healthy", "starting": "starting", "unhealthy": "unhealthy"} {
+		if got := normalizeHealth(in); got != want {
+			t.Errorf("normalizeHealth(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

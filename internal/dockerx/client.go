@@ -71,7 +71,7 @@ func (c *Client) list(ctx context.Context, f client.Filters) ([]ContainerInfo, e
 			info.Name = strings.TrimPrefix(s.Names[0], "/")
 		}
 		if s.Health != nil {
-			info.Health = string(s.Health.Status)
+			info.Health = normalizeHealth(string(s.Health.Status))
 		} else {
 			info.Health = healthFromStatus(s.Status)
 		}
@@ -116,7 +116,7 @@ func (c *Client) Inspect(ctx context.Context, id string) (Facts, error) {
 	if ir.State != nil {
 		f.State = string(ir.State.Status)
 		if ir.State.Health != nil {
-			f.Health = string(ir.State.Health.Status)
+			f.Health = normalizeHealth(string(ir.State.Health.Status))
 		}
 	}
 	return f, nil
