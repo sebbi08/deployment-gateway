@@ -280,3 +280,146 @@ func TestLoggingOptionValuesAreChecked(t *testing.T) {
 		}
 	}
 }
+
+// Each check reports its own violation; the cases match the specific message
+// so that a disabled check is not masked by a neighbouring one that happens
+// to mention the same key.
+func TestVerifyRejectsSpecificViolations(t *testing.T) {
+	label := func(w map[string]any, k string, val any) { w["labels"].(map[string]any)[k] = val }
+	port := func(w map[string]any, k string, val any) { w["ports"].([]any)[0].(map[string]any)[k] = val }
+	vol := func(w map[string]any) map[string]any { return w["volumes"].([]any)[0].(map[string]any) }
+	cases := []struct {
+		name string
+		f    func(root, web map[string]any)
+		want string
+	}{
+		// Service keys must belong to this workspace and app; container_name
+		// and hostname must equal the key.
+		{"consistent service of other workspace", func(r, _ map[string]any) {
+			r["services"].(map[string]any)["bob-shop-db"] = consistentService("bob-shop-db")
+		}, `service key "bob-shop-db" is not`},
+		{"consistent service of other app", func(r, _ map[string]any) {
+			r["services"].(map[string]any)["alice-blog-db"] = consistentService("alice-blog-db")
+		}, `service key "alice-blog-db" is not`},
+		{"container_name of other service", func(_, w map[string]any) { w["container_name"] = "alice-shop-db" }, "container_name must be"},
+		{"hostname of other service", func(_, w map[string]any) { w["hostname"] = "alice-shop-db" }, "hostname must be"},
+
+		// Logging.
+		{"logging driver", func(_, w map[string]any) { w["logging"].(map[string]any)["driver"] = "syslog" }, "logging driver must be json-file"},
+		{"logging extra option", func(_, w map[string]any) {
+			w["logging"].(map[string]any)["options"].(map[string]any)["syslog-address"] = "tcp://127.0.0.1:25"
+		}, `logging option "syslog-address" not allowed`},
+		{"logging extra key", func(_, w map[string]any) { w["logging"].(map[string]any)["mode"] = "non-blocking" }, `logging key "mode" not allowed`},
+
+		// Resource limits in both directions, read-only rootfs and tmpfs.
+		{"mem_limit zero", func(_, w map[string]any) { w["mem_limit"] = 0; w["memswap_limit"] = 0 }, "mem_limit missing or above"},
+		{"cpus over max", func(_, w map[string]any) { w["cpus"] = 64 }, "cpus missing or above"},
+		{"cpus zero", func(_, w map[string]any) { w["cpus"] = 0 }, "cpus missing or above"},
+		{"cpus missing", func(_, w map[string]any) { delete(w, "cpus") }, "cpus missing or above"},
+		{"pids over max", func(_, w map[string]any) { w["pids_limit"] = 1 << 30 }, "pids_limit missing or above"},
+		{"pids negative", func(_, w map[string]any) { w["pids_limit"] = -1 }, "pids_limit missing or above"},
+		{"read_only missing", func(_, w map[string]any) { delete(w, "read_only") }, "read_only must be set"},
+		{"tmpfs missing", func(_, w map[string]any) { delete(w, "tmpfs") }, "tmpfs must be [/tmp]"},
+		{"tmpfs extra", func(_, w map[string]any) { w["tmpfs"] = []any{"/tmp", "/run"} }, "tmpfs must be [/tmp]"},
+
+		// Compose interpolates every string value, including list items.
+		{"unescaped dollar in healthcheck", func(_, w map[string]any) {
+			w["healthcheck"].(map[string]any)["test"] = []any{"CMD", "sh", "-c", "echo ${DOCKER_CONFIG}"}
+		}, ".healthcheck.test[3]: unescaped $"},
+		{"unescaped dollar in command", func(_, w map[string]any) { w["command"] = []any{"run", "$JOB"} }, ".command[1]: unescaped $"},
+
+		// Top-level keys and networks.
+		{"top-level include", func(r, _ map[string]any) { r["include"] = []any{"/srv/other/docker-compose.yml"} }, `top-level key "include" not allowed`},
+		{"own network missing", func(r, _ map[string]any) { delete(r["networks"].(map[string]any), "dg-alice-shop") }, `top-level network "dg-alice-shop" missing`},
+		{"network driver", func(r, _ map[string]any) {
+			r["networks"].(map[string]any)["dg-alice-shop"] = map[string]any{"name": "dg-alice-shop", "driver": "macvlan"}
+		}, `key "driver" not allowed`},
+		{"network name differs from key", func(r, _ map[string]any) {
+			r["networks"].(map[string]any)["apps"] = map[string]any{"name": "proxy", "external": true}
+		}, "name must equal its key"},
+
+		// Owner labels.
+		{"labels missing", func(_, w map[string]any) { delete(w, "labels") }, "labels missing"},
+		{"foreign app label", func(_, w map[string]any) { label(w, "deploy-gateway.app", "blog") }, "label deploy-gateway.app must be"},
+		{"foreign service label", func(_, w map[string]any) { label(w, "deploy-gateway.service", "db") }, "label deploy-gateway.service must be"},
+		{"managed label false", func(_, w map[string]any) { label(w, "deploy-gateway.managed", "false") }, "label deploy-gateway.managed must be"},
+		{"label not a string", func(_, w map[string]any) { label(w, "traefik.port", 8080) }, `label "traefik.port" must be a string`},
+		{"gateway label other case", func(_, w map[string]any) { label(w, "Deploy-Gateway.admin", "true") }, `label "Deploy-Gateway.admin" not allowed`},
+
+		// Ports.
+		{"port above range", func(_, w map[string]any) { port(w, "published", "20100") }, "published port 20100 outside"},
+		{"port extra key", func(_, w map[string]any) { port(w, "mode", "host") }, `port key "mode" not allowed`},
+		{"port target zero", func(_, w map[string]any) { port(w, "target", 0) }, "port target invalid"},
+		{"port target too high", func(_, w map[string]any) { port(w, "target", 65536) }, "port target invalid"},
+		{"port protocol", func(_, w map[string]any) { port(w, "protocol", "sctp") }, "protocol must be tcp or udp"},
+
+		// Volumes.
+		{"bind propagation", func(_, w map[string]any) {
+			vol(w)["bind"] = map[string]any{"create_host_path": false, "propagation": "rshared"}
+		}, "bind options must be exactly"},
+		{"volume extra key", func(_, w map[string]any) { vol(w)["consistency"] = "cached" }, `volume key "consistency" not allowed`},
+		{"two volumes", func(_, w map[string]any) { w["volumes"] = []any{vol(w), vol(w)} }, "at most one volume"},
+		{"relative volume target", func(_, w map[string]any) { vol(w)["target"] = "data" }, "target must be absolute"},
+		// The case names avoid "docker.sock": t.TempDir puts them into the
+		// bind source path, which would trip the source check.
+		{"socket as source", func(_, w map[string]any) { vol(w)["source"] = "/var/run/docker.sock" }, "docker.sock must never be mounted"},
+		{"socket as target", func(_, w map[string]any) { vol(w)["target"] = "/var/run/docker.sock" }, "docker.sock must never be mounted"},
+
+		// Shapes.
+		{"volumes not a list", func(_, w map[string]any) { w["volumes"] = vol(w) }, "volumes must be a list"},
+		{"ports not a list", func(_, w map[string]any) { w["ports"] = w["ports"].([]any)[0] }, "ports must be a list"},
+		{"depends_on list", func(_, w map[string]any) { w["depends_on"] = []any{"alice-shop-db"} }, "depends_on must be a mapping"},
+		{"depends_on extra key", func(_, w map[string]any) {
+			w["depends_on"] = map[string]any{"alice-shop-db": map[string]any{"condition": "service_started", "restart": true}}
+		}, `depends_on "alice-shop-db" must only set condition`},
+		{"depends_on other condition", func(_, w map[string]any) {
+			w["depends_on"] = map[string]any{"alice-shop-db": map[string]any{"condition": "service_completed_successfully"}}
+		}, `depends_on "alice-shop-db" must only set condition`},
+		{"healthcheck list", func(_, w map[string]any) { w["healthcheck"] = []any{"CMD", "true"} }, "healthcheck must be a mapping"},
+		{"service not a mapping", func(r, _ map[string]any) { r["services"].(map[string]any)["alice-shop-cache"] = "redis:7" }, `service "alice-shop-cache" is not a mapping`},
+		{"network not a mapping", func(r, _ map[string]any) { r["networks"].(map[string]any)["apps"] = "apps" }, `network "apps" must be a mapping`},
+		{"top-level networks missing", func(r, _ map[string]any) { delete(r, "networks") }, "top-level networks missing"},
+		{"services missing", func(r, _ map[string]any) { delete(r, "services") }, "services missing"},
+		{"services empty", func(r, _ map[string]any) { r["services"] = map[string]any{} }, "services missing"},
+		{"image missing", func(_, w map[string]any) { delete(w, "image") }, "image missing"},
+		{"own network not joined", func(_, w map[string]any) { w["networks"] = []any{"apps"} }, `must join "dg-alice-shop"`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc, p := setup(t)
+			err := Verify(mutate(t, doc, c.f), p)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want error containing %q, got %v", c.want, err)
+			}
+		})
+	}
+}
+
+// consistentService returns a service that passes every per-service check,
+// so only the ownership of its key can reject it.
+func consistentService(key string) map[string]any {
+	return map[string]any{
+		"image": "postgres:16.4", "container_name": key, "hostname": key, "restart": "unless-stopped",
+		"cap_drop": []any{"ALL"}, "security_opt": []any{"no-new-privileges:true"}, "read_only": true,
+		"tmpfs": []any{"/tmp"}, "mem_limit": 1 << 20, "memswap_limit": 1 << 20, "cpus": 0.1, "pids_limit": 64,
+		"logging":  map[string]any{"driver": "json-file", "options": map[string]any{"max-size": "10m", "max-file": "3"}},
+		"networks": []any{"dg-alice-shop"},
+		"labels": map[string]any{
+			"deploy-gateway.workspace": "alice", "deploy-gateway.app": "shop",
+			"deploy-gateway.service": "db", "deploy-gateway.managed": "true",
+		},
+	}
+}
+
+// Service keys outside the allowlist are rejected, including compose
+// features that run commands or read host files.
+func TestVerifyRejectsUnlistedServiceKeys(t *testing.T) {
+	doc, p := setup(t)
+	for _, k := range []string{"post_start", "pre_stop", "env_file", "label_file", "dns", "shm_size", "oom_kill_disable", "stop_signal"} {
+		bad := strings.Replace(doc, "  alice-shop-web:\n", "  alice-shop-web:\n    "+k+": x\n", 1)
+		err := Verify([]byte(bad), p)
+		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("key %q not allowed", k)) {
+			t.Errorf("%s: %v", k, err)
+		}
+	}
+}

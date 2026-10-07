@@ -98,6 +98,7 @@ func TestRenderHardening(t *testing.T) {
 			"cap_drop":       []any{"ALL"},
 			"security_opt":   []any{"no-new-privileges:true"},
 			"tmpfs":          []any{"/tmp"},
+			"logging":        map[string]any{"driver": "json-file", "options": map[string]any{"max-size": "10m", "max-file": "3"}},
 		}
 		for k, want := range checks {
 			if !reflect.DeepEqual(s[k], want) {
@@ -271,5 +272,26 @@ func TestRenderHealthcheckProbesEarly(t *testing.T) {
 	hc := parse(t, out.YAML)["services"].(map[string]any)["alice-shop-db"].(map[string]any)["healthcheck"].(map[string]any)
 	if hc["start_period"] != "10s" || hc["start_interval"] != "2s" {
 		t.Fatalf("healthcheck = %v, want start_period = interval (10s) and start_interval 2s", hc)
+	}
+}
+
+// Owner labels are written after template labels, so a template label key
+// that renders to an owner-label key cannot change the owner.
+func TestRenderOwnerLabelsOverrideTemplateLabels(t *testing.T) {
+	in := testInput(t)
+	in.Templates["public-web"].Labels["deploy-gateway.workspace"] = "bob"
+	in.Templates["public-web"].Labels["deploy-gateway.app"] = "blog"
+	in.Templates["public-web"].Labels["deploy-gateway.service"] = "db"
+	in.Templates["public-web"].Labels["deploy-gateway.managed"] = "false"
+	out := mustRender(t, in)
+	want := map[string]string{
+		"deploy-gateway.workspace": "alice", "deploy-gateway.app": "shop",
+		"deploy-gateway.service": "web", "deploy-gateway.managed": "true",
+	}
+	labels := service(t, parse(t, out.YAML), "alice-shop-web")["labels"].(map[string]any)
+	for k, v := range want {
+		if labels[k] != v || out.Labels["web"][k] != v {
+			t.Errorf("%s = %v (yaml) / %q (out), want %q", k, labels[k], out.Labels["web"][k], v)
+		}
 	}
 }

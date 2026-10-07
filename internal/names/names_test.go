@@ -30,6 +30,14 @@ func TestValidators(t *testing.T) {
 		{"svc", ValidService, "w", true},
 		{"svc", ValidService, "my-web", false},
 		{"svc", ValidService, "abcdefghijklmnopq", false},
+		// No dots or underscores anywhere: compose rejects dotted project
+		// names, and host uniqueness (spec §8) assumes dot-free names.
+		{"ws", ValidWorkspace, "al.ice", false},
+		{"ws", ValidWorkspace, "al_ice", false},
+		{"app", ValidApp, "my.shop", false},
+		{"app", ValidApp, "my_shop", false},
+		{"svc", ValidService, "w.b", false},
+		{"svc", ValidService, "w_b", false},
 		{"tpl", ValidTemplate, "public-web", true},
 		{"tpl", ValidTemplate, "p", false},
 	}
