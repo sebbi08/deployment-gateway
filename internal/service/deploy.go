@@ -122,7 +122,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	}
 	// Volumes of replaced or removed containers that nothing mounts any more.
 	s.removeVolumes(bg, volsBefore, s.appVolumes(bg, ws.Name, app))
-	return s.status(ctx, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
+	return s.status(bg, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
 }
 
 // unhealthyServices lists planned services without a running container, or

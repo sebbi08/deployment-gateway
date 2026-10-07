@@ -51,9 +51,11 @@ func (s *Service) lifecycle(ctx context.Context, ws store.Workspace, app, svc st
 		return AppStatus{}, &Error{Code: CodeConflict, Message: "another operation on this app is in progress"}
 	}
 	defer unlock()
-	// Detached so a client disconnect cannot abort compose half-way; the
-	// runner enforces its own timeout and the app lock is held meanwhile.
-	if out, err := op(context.WithoutCancel(ctx), s.composeFile(ws.Name, app), names.Project(ws.Name, app), target); err != nil {
+	// Detached so a client disconnect cannot abort compose half-way or turn
+	// its result into an error; the runner enforces its own timeout and the
+	// app lock is held meanwhile.
+	ctx = context.WithoutCancel(ctx)
+	if out, err := op(ctx, s.composeFile(ws.Name, app), names.Project(ws.Name, app), target); err != nil {
 		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: err.Error() + "\n" + s.sanitize(ws.Name, out), detail: out}
 	}
 	claims, err := s.Store.ListPortClaims(ctx, ws.ID)

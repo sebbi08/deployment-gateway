@@ -55,3 +55,28 @@ func TestLifecycleComposeIsDetachedFromRequest(t *testing.T) {
 		t.Fatalf("compose ops must not be cancellable by the request: %v", detached)
 	}
 }
+
+// Once compose has done its work, a client disconnect must not turn the
+// result into an internal error.
+func TestCommittedWorkReportsSuccessAfterDisconnect(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	ctx, cancel := context.WithCancel(h.ctx)
+	h.compose.ObserveCtx = func(op string, _ context.Context) {
+		if op == "up" {
+			cancel()
+		}
+	}
+	if _, err := h.svc.Deploy(ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)}); err != nil {
+		t.Fatalf("deploy after disconnect during up: %v", err)
+	}
+	ctx, cancel = context.WithCancel(h.ctx)
+	h.compose.ObserveCtx = func(op string, _ context.Context) {
+		if op == "restart" {
+			cancel()
+		}
+	}
+	if _, err := h.svc.Restart(ctx, p, service.ServiceInput{App: "shop"}); err != nil {
+		t.Fatalf("restart after disconnect: %v", err)
+	}
+}

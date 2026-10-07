@@ -184,7 +184,10 @@ func (d *FakeDocker) filter(match func(map[string]string) bool) []dockerx.Contai
 	return out
 }
 
-func (d *FakeDocker) ProjectContainers(_ context.Context, ws, app string) ([]dockerx.ContainerInfo, error) {
+func (d *FakeDocker) ProjectContainers(ctx context.Context, ws, app string) ([]dockerx.ContainerInfo, error) {
+	if err := ctx.Err(); err != nil { // like the real client
+		return nil, err
+	}
 	return d.filter(func(l map[string]string) bool { return l[names.LabelWorkspace] == ws && l[names.LabelApp] == app }), nil
 }
 
