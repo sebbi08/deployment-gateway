@@ -282,5 +282,6 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: TestLoginBodyIsLimited: a 1 MiB+ login body gets 400 too large (mutant: 401 wrong password).
 - [x] **T15** No test fails when the agent JSON API body limit is lifted — [internal/api/api.go:82](../../../internal/api/api.go#L82)
   - Done: TestRequestBodyIsLimited: a 200 KiB body gets 400 too large (mutant: 422 from stack validation).
-- [ ] **T16** No test fails when serve() swaps admin trust wiring (AdminTrustedProxies, listener handlers) — [cmd/deploy-gateway/main.go:181](../../../cmd/deploy-gateway/main.go#L181)
+- [x] **T16** No test fails when serve() swaps admin trust wiring (AdminTrustedProxies, listener handlers) — [cmd/deploy-gateway/main.go:181](../../../cmd/deploy-gateway/main.go#L181)
+  - Done: Extracted adminOptions and newServers from serve(); TestAdminOptionsTrustWiring and TestNewServersBindsHandlersToListeners kill the proxy-list swap and the handler swap.
 - [ ] **T17** 65 further low/info surviving mutants (verify, stack, tmpl, dockerx, service, auth) — add tests in bulk
