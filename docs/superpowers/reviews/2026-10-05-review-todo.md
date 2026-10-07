@@ -262,7 +262,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: see T3.
 - [x] **T5** No test fails when the runner's own timeout is removed, although every caller detaches its context — [internal/runner/runner.go:100](../../../internal/runner/runner.go#L100)
   - Done: Options.Grace (default 30s) makes the kill grace configurable; TestRunnerTimeoutStopsHangingCompose uses a detached ctx and a sleeping fake compose.
-- [ ] **T6** No test fails when workspace total memory/CPU quotas stop counting other apps — [internal/service/plan.go:90](../../../internal/service/plan.go#L90)
+- [x] **T6** No test fails when workspace total memory/CPU quotas stop counting other apps — [internal/service/plan.go:90](../../../internal/service/plan.go#L90)
+  - Done: TestDeployTotalQuotasCountOtherApps kills both mutants (memory and cpu sums) and pins that a redeploy excludes its own resources.
 - [ ] **T7** No test fails when prepare stops holding the workspace mutex (quota race) — [internal/service/deploy.go:126](../../../internal/service/deploy.go#L126)
 - [ ] **T8** No test fails when ListPortClaims is not scoped to the workspace (cross-tenant leak via whoami) — [internal/store/apps.go:174](../../../internal/store/apps.go#L174)
 - [ ] **T9** No test fails when ListApps is not scoped to the workspace (agent list shows other tenants' apps) — [internal/store/apps.go:67](../../../internal/store/apps.go#L67)
