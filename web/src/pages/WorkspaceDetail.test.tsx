@@ -80,3 +80,20 @@ test("grants are saved as template ids", async () => {
   expect(await screen.findByText("Grants saved")).toBeInTheDocument();
   expect(calls.find((c) => c.method === "PUT")?.body).toEqual({ template_ids: [1] });
 });
+
+// Creating a token refetches the workspace; if that refetch fails (e.g. the
+// Docker daemon is restarting), the one-time token must stay visible.
+test("a failed refetch keeps the new token visible", async () => {
+  let loads = 0;
+  mockApi({
+    "GET /workspaces/alice": () => (loads++ === 0 ? { body: detail } : { status: 500, body: { code: "internal", message: "docker down" } }),
+    "POST /workspaces/alice/tokens": { status: 201, body: { token: "dgw_onlyshownonce" } },
+  });
+  renderDetail();
+  await userEvent.click(await screen.findByRole("tab", { name: "Tokens" }));
+  await userEvent.type(screen.getByLabelText(/Token label/), "claude");
+  await userEvent.click(screen.getByRole("button", { name: "Create token" }));
+  expect(await screen.findByText("dgw_onlyshownonce")).toBeInTheDocument();
+  await screen.findByText(/docker down/);
+  expect(screen.getByText("dgw_onlyshownonce")).toBeInTheDocument();
+});

@@ -295,10 +295,13 @@ export function WorkspaceDetail() {
   const { name = "" } = useParams();
   const q = useQuery({ queryKey: ["workspace", name], queryFn: () => api.workspace(name) });
   if (q.isPending) return <Loader />;
-  if (q.isError) return <ErrorAlert error={q.error} />;
+  // Replace the page only when nothing was loaded yet: a failed background
+  // refetch must not unmount the tabs (and with them e.g. the token modal).
+  if (q.isError && !q.data) return <ErrorAlert error={q.error} />;
   const ws = q.data;
   return (
     <Stack>
+      {q.isError && <ErrorAlert error={q.error} />}
       <div>
         <Title order={2}>Workspace {ws.name}</Title>
         <Text size="sm" c="dimmed">
