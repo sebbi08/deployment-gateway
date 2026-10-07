@@ -15,10 +15,12 @@ func ClientIP(r *http.Request, trusted []netip.Prefix) string {
 		return r.RemoteAddr
 	}
 	if inPrefixes(peer, trusted) {
-		parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+		// All header lines: a proxy may append its own line instead of
+		// extending the client's.
+		parts := strings.Split(strings.Join(r.Header.Values("X-Forwarded-For"), ","), ",")
 		for i := len(parts) - 1; i >= 0; i-- {
-			a, err := netip.ParseAddr(strings.TrimSpace(parts[i]))
-			if err != nil {
+			a, ok := parseForwarded(strings.TrimSpace(parts[i]))
+			if !ok {
 				break
 			}
 			a = a.Unmap()
@@ -50,4 +52,13 @@ func inPrefixes(a netip.Addr, prefixes []netip.Prefix) bool {
 		}
 	}
 	return false
+}
+
+// parseForwarded accepts "ip", "ip:port" and "[v6]:port".
+func parseForwarded(s string) (netip.Addr, bool) {
+	if ap, err := netip.ParseAddrPort(s); err == nil {
+		return ap.Addr(), true
+	}
+	a, err := netip.ParseAddr(s)
+	return a, err == nil
 }

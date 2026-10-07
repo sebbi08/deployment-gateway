@@ -115,3 +115,26 @@ func TestSessions(t *testing.T) {
 		t.Fatal("deleted session still valid")
 	}
 }
+
+// A proxy that appends its own X-Forwarded-For line (instead of extending
+// the client's) must not let the client choose its address; entries with a
+// port are accepted.
+func TestClientIPUsesAllForwardedForLines(t *testing.T) {
+	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.1/32")}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "10.0.0.1:1234"
+	r.Header.Add("X-Forwarded-For", "6.6.6.6")      // client-supplied
+	r.Header.Add("X-Forwarded-For", "203.0.113.9") // appended by the proxy
+	if got := ClientIP(r, trusted); got != "203.0.113.9" {
+		t.Fatalf("two XFF lines: got %s, want the proxy-appended address", got)
+	}
+	r.Header.Del("X-Forwarded-For")
+	r.Header.Set("X-Forwarded-For", "203.0.113.9:5555")
+	if got := ClientIP(r, trusted); got != "203.0.113.9" {
+		t.Fatalf("ip:port entry: got %s", got)
+	}
+	r.Header.Set("X-Forwarded-For", "[2001:db8::7]:443")
+	if got := ClientIP(r, trusted); got != "2001:db8::7" {
+		t.Fatalf("[v6]:port entry: got %s", got)
+	}
+}

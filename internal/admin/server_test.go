@@ -320,3 +320,17 @@ func TestSessionCookieCannotBeShadowed(t *testing.T) {
 		t.Fatalf("valid session hidden by a shadowing cookie: %d", w.Code)
 	}
 }
+
+// A proxy that adds the identity header instead of replacing it would pass
+// the client's value through; more than one value is rejected.
+func TestProxyModeRejectsRepeatedIdentityHeader(t *testing.T) {
+	e := newEnv(t, true, builtUI)
+	w := e.do("GET", "/api/admin/me", nil, func(r *http.Request) {
+		r.RemoteAddr = "10.0.0.1:4444"
+		r.Header.Add("Remote-User", "mallory")
+		r.Header.Add("Remote-User", "alice")
+	})
+	if w.Code != http.StatusUnauthorized {
+		t.Fatalf("two identity headers got %d, want 401", w.Code)
+	}
+}

@@ -123,7 +123,11 @@ func (s *Server) requireAdmin(next http.Handler) http.Handler {
 				writeJSON(w, http.StatusForbidden, apiError{Code: "forbidden", Message: "request did not come through the trusted proxy"})
 				return
 			}
-			who = strings.TrimSpace(r.Header.Get(s.opts.UserHeader))
+			// Exactly one value: a proxy that adds rather than replaces the
+			// header would otherwise pass a client-supplied identity on.
+			if vals := r.Header.Values(s.opts.UserHeader); len(vals) == 1 {
+				who = strings.TrimSpace(vals[0])
+			}
 			if who == "" {
 				writeJSON(w, http.StatusUnauthorized, apiError{Code: service.CodeUnauthorized, Message: "identity header missing"})
 				return
