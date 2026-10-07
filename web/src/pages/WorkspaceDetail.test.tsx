@@ -47,6 +47,46 @@ test("a new token is shown exactly once", async () => {
   expect(screen.queryByText("dgw_secretsecretsecret")).not.toBeInTheDocument();
 });
 
+const me = { actor: "admin", proxy_mode: false, agent_url: "https://mcp.example.com", admin_url: "https://deploy-admin.example.com" };
+
+test("the agent setup tab shows a copyable prompt with the real hosts", async () => {
+  mockApi({ "GET /workspaces/alice": { body: detail }, "GET /me": { body: me } });
+  renderDetail();
+  await userEvent.click(await screen.findByRole("tab", { name: "Agent setup" }));
+  const prompt = await screen.findByTestId("agent-prompt");
+  await waitFor(() => expect(prompt).toHaveTextContent("https://mcp.example.com/install"));
+  expect(prompt).toHaveTextContent("https://mcp.example.com/mcp");
+  expect(prompt).toHaveTextContent("Authorization: Bearer <TOKEN>");
+  expect(prompt).toHaveTextContent("https://deploy-admin.example.com/workspaces/alice");
+  expect(screen.getByRole("button", { name: "Copy prompt" })).toBeInTheDocument();
+  expect(screen.queryByText("MCP host unknown")).not.toBeInTheDocument();
+});
+
+test("the agent setup tab warns when MCP_HOST is not configured", async () => {
+  mockApi({ "GET /workspaces/alice": { body: detail }, "GET /me": { body: { ...me, agent_url: "", admin_url: "" } } });
+  renderDetail();
+  await userEvent.click(await screen.findByRole("tab", { name: "Agent setup" }));
+  expect(await screen.findByText("MCP host unknown")).toBeInTheDocument();
+  expect(screen.getByTestId("agent-prompt")).toHaveTextContent("https://<MCP_HOST>/mcp");
+  expect(screen.getByTestId("agent-prompt")).toHaveTextContent(`${window.location.origin}/workspaces/alice`);
+});
+
+test("the new-token modal offers the prompt with the token filled in", async () => {
+  mockApi({
+    "GET /workspaces/alice": { body: detail },
+    "GET /me": { body: me },
+    "POST /workspaces/alice/tokens": { status: 201, body: { token: "dgw_secretsecretsecret" } },
+  });
+  renderDetail();
+  await userEvent.click(await screen.findByRole("tab", { name: "Tokens" }));
+  await userEvent.type(screen.getByLabelText(/Token label/), "claude");
+  await userEvent.click(screen.getByRole("button", { name: "Create token" }));
+  const prompt = await screen.findByTestId("agent-prompt");
+  await waitFor(() => expect(prompt).toHaveTextContent("https://mcp.example.com/mcp"));
+  expect(prompt).toHaveTextContent("Authorization: Bearer dgw_secretsecretsecret");
+  expect(prompt).not.toHaveTextContent("<TOKEN>");
+});
+
 test("the apps tab explains that stopping does not keep an app down", async () => {
   mockApi({ "GET /workspaces/alice": { body: detail } });
   renderDetail();

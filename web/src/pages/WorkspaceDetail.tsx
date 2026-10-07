@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api";
+import { AgentPrompt } from "../components/AgentPrompt";
 import { ConfirmDelete } from "../components/ConfirmDelete";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { PortFields } from "../components/PortFields";
@@ -213,11 +214,24 @@ function TokensTab({ ws }: { ws: Detail }) {
             </CopyButton>
             <Button onClick={() => setNewToken(null)}>I have stored it</Button>
           </Group>
-          <Text size="sm" c="dimmed">
-            Agents connect to https://&lt;agent-host&gt;/mcp with the header Authorization: Bearer &lt;token&gt;.
+          <Text fw={600} mt="sm">
+            Prompt for the agent
           </Text>
+          <AgentPrompt workspace={ws.name} token={newToken ?? undefined} />
         </Stack>
       </Modal>
+    </Stack>
+  );
+}
+
+function AgentSetupTab({ ws }: { ws: Detail }) {
+  return (
+    <Stack>
+      <Text size="sm">
+        Give this prompt to an agent (Claude Code, Codex, …) to let it install the MCP server for workspace <Code>{ws.name}</Code>.
+        It links to the gateway's public setup guide, which explains every client in detail.
+      </Text>
+      <AgentPrompt workspace={ws.name} />
     </Stack>
   );
 }
@@ -328,6 +342,7 @@ export function WorkspaceDetail() {
         <Tabs.List>
           <Tabs.Tab value="apps">Apps ({ws.apps.length})</Tabs.Tab>
           <Tabs.Tab value="tokens">Tokens</Tabs.Tab>
+          <Tabs.Tab value="agent">Agent setup</Tabs.Tab>
           <Tabs.Tab value="templates">Templates</Tabs.Tab>
           <Tabs.Tab value="quota">Quota &amp; ports</Tabs.Tab>
           <Tabs.Tab value="danger" color="red">
@@ -339,6 +354,9 @@ export function WorkspaceDetail() {
         </Tabs.Panel>
         <Tabs.Panel value="tokens" pt="md">
           <TokensTab ws={ws} />
+        </Tabs.Panel>
+        <Tabs.Panel value="agent" pt="md">
+          <AgentSetupTab ws={ws} />
         </Tabs.Panel>
         <Tabs.Panel value="templates" pt="md">
           <GrantsTab ws={ws} />

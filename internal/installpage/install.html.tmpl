@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>deploy-gateway: MCP setup for agents</title>
+<style>
+  :root { color-scheme: light dark; --fg: #1d2125; --muted: #5c6670; --bg: #ffffff; --code: #f3f4f6; --border: #d8dde3; --accent: #1c64c8; }
+  @media (prefers-color-scheme: dark) { :root { --fg: #e6e8eb; --muted: #9aa4ae; --bg: #15181c; --code: #22272e; --border: #333a43; --accent: #6ea8ff; } }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.8rem; margin: 0 0 4px; }
+  h2 { font-size: 1.3rem; margin: 40px 0 8px; padding-top: 8px; border-top: 1px solid var(--border); }
+  h3 { font-size: 1.05rem; margin: 24px 0 6px; }
+  p, li { color: var(--fg); }
+  .muted { color: var(--muted); }
+  a { color: var(--accent); }
+  code { font: 0.9em ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; background: var(--code); padding: 1px 4px; border-radius: 4px; }
+  pre { background: var(--code); border: 1px solid var(--border); border-radius: 6px; padding: 12px 14px; overflow-x: auto; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 8px 0; }
+  th, td { text-align: left; vertical-align: top; padding: 6px 10px; border-bottom: 1px solid var(--border); }
+  th { white-space: nowrap; }
+  .note { border-left: 4px solid var(--accent); background: var(--code); padding: 8px 12px; border-radius: 4px; }
+  .warn { border-left-color: #d9822b; }
+</style>
+</head>
+<body>
+<main>
+<h1>deploy-gateway: MCP setup for agents</h1>
+<p class="muted">Server version {{.Version}} · this page: <a href="{{.InstallURL}}">{{.InstallURL}}</a></p>
+
+<p>This server lets AI agents deploy containerized apps into their own <strong>workspace</strong> on a shared Docker host.
+Agents talk to it through an <strong>MCP server (streamable HTTP)</strong> or the equivalent JSON API; they never get SSH,
+Docker socket or compose access. This page explains how to connect an agent and how to use the tools.</p>
+
+{{if .Derived}}<p class="note warn">The endpoint URLs below were derived from this request because the server has no
+<code>MCP_HOST</code> configured. If they look wrong, ask the administrator for the public MCP URL.</p>
+{{end}}
+<h2 id="overview">At a glance</h2>
+<table>
+  <tr><th>MCP endpoint</th><td><code>{{.MCPURL}}</code></td></tr>
+  <tr><th>Transport</th><td>Streamable HTTP (stateless, JSON responses). No stdio, no SSE-only transport.</td></tr>
+  <tr><th>Authentication</th><td>HTTP header <code>Authorization: Bearer &lt;token&gt;</code> on every request. Tokens start with <code>dgw_</code>.</td></tr>
+  <tr><th>JSON API</th><td><code>POST {{.APIURL}}/&lt;tool&gt;</code> with a JSON body and the same header (same tools as MCP)</td></tr>
+  <tr><th>Recommended server name</th><td><code>deploy-gateway</code></td></tr>
+  <tr><th>Admin UI</th><td>{{if .AdminURL}}<a href="{{.AdminURL}}">{{.AdminURL}}</a> (for humans: workspaces, tokens, templates; agents cannot log in there){{else}}not published here; ask the administrator{{end}}</td></tr>
+</table>
+
+<h2 id="token">1. Get a token</h2>
+<p>Every token belongs to exactly one workspace. An administrator creates it in the admin UI
+(<em>Workspaces → your workspace → Tokens</em>); it is shown only once. All calls made with a token only see and change
+the apps of that workspace.</p>
+<ul>
+  <li>If you are an agent and have no token, <strong>ask your user for one</strong>. There is no other way to obtain a token.</li>
+  <li>Treat the token like a password: never commit it, never write it into files that are checked into a repository,
+    never echo it into logs, issues or pull requests.</li>
+  <li>The examples below read it from the environment variable <code>DEPLOY_GATEWAY_TOKEN</code>.</li>
+</ul>
+<pre><code>export DEPLOY_GATEWAY_TOKEN='dgw_...'</code></pre>
+
+<h2 id="install">2. Add the MCP server to your client</h2>
+
+<h3 id="claude-code">Claude Code</h3>
+<pre><code>claude mcp add --transport http deploy-gateway {{.MCPURL}} \
+  --header "Authorization: Bearer $DEPLOY_GATEWAY_TOKEN"</code></pre>
+<p>This uses the default <code>local</code> scope (current project, stored privately in <code>~/.claude.json</code>).
+Add <code>--scope user</code> to make the server available in all projects. Do <strong>not</strong> use
+<code>--scope project</code> with a literal token: it writes <code>.mcp.json</code>, which is usually committed.
+If you want a shared project configuration, commit an <code>.mcp.json</code> that references the environment variable instead:</p>
+<pre><code>{
+  "mcpServers": {
+    "deploy-gateway": {
+      "type": "http",
+      "url": "{{.MCPURL}}",
+      "headers": { "Authorization": "Bearer ${DEPLOY_GATEWAY_TOKEN}" }
+    }
+  }
+}</code></pre>
+<p>Check the connection with <code>claude mcp list</code> (or <code>/mcp</code> inside a session). New tools appear in
+the next session, so restart Claude Code after adding the server.</p>
+
+<h3 id="codex">OpenAI Codex CLI</h3>
+<p>In <code>~/.codex/config.toml</code>:</p>
+<pre><code>[mcp_servers.deploy-gateway]
+url = "{{.MCPURL}}"
+bearer_token_env_var = "DEPLOY_GATEWAY_TOKEN"</code></pre>
+
+<h3 id="other">Other MCP clients (Cursor, VS Code, Windsurf, …)</h3>
+<p>Configure a remote (HTTP) server with the URL and header below. The surrounding keys differ per client
+(<code>mcpServers</code> vs. <code>servers</code>, <code>"type": "http"</code> vs. <code>"streamable-http"</code>);
+check your client's documentation.</p>
+<pre><code>{
+  "mcpServers": {
+    "deploy-gateway": {
+      "url": "{{.MCPURL}}",
+      "headers": { "Authorization": "Bearer &lt;token&gt;" }
+    }
+  }
+}</code></pre>
+<p>Clients that only support local stdio servers can use the <code>mcp-remote</code> bridge (needs Node.js):</p>
+<pre><code>{
+  "mcpServers": {
+    "deploy-gateway": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "{{.MCPURL}}", "--header", "Authorization:${AUTH_HEADER}"],
+      "env": { "AUTH_HEADER": "Bearer &lt;token&gt;" }
+    }
+  }
+}</code></pre>
+
+<h3 id="http">Without MCP: JSON API</h3>
+<p>Every tool is also available as <code>POST {{.APIURL}}/&lt;tool&gt;</code>; the body is the tool's input as JSON
+(<code>{}</code> for tools without input), the response is the tool's result or an error object with
+<code>code</code> and <code>message</code>.</p>
+<pre><code>curl -sS -X POST {{.APIURL}}/whoami \
+  -H "Authorization: Bearer $DEPLOY_GATEWAY_TOKEN" \
+  -H "Content-Type: application/json" -d '{}'</code></pre>
+
+<h2 id="verify">3. Verify the connection</h2>
+<p>Call the <code>whoami</code> tool. It returns your workspace name, quotas and current usage, the host port range for
+published ports, the container naming scheme and deployment guidance. Read the guidance before your first deploy.</p>
+<table>
+  <tr><th>Symptom</th><th>Cause</th></tr>
+  <tr><td>HTTP 401 / <code>unauthorized</code></td><td>Token missing, mistyped or revoked. Check the header format <code>Authorization: Bearer dgw_...</code>; ask for a new token if it was revoked. After 10 failed attempts within a minute your address is blocked for 15 minutes and even a valid token gets 401, so stop retrying.</td></tr>
+  <tr><td>HTTP 429</td><td>Rate limit: at most 8 concurrent calls and about 5 calls per second per token. Wait and retry, do not hammer.</td></tr>
+  <tr><td>Tools do not show up</td><td>Restart the client/session after adding the server; check that the URL ends in <code>/mcp</code>.</td></tr>
+</table>
+
+<h2 id="tools">4. Tools</h2>
+<table>
+  <tr><th>Tool</th><th>What it does</th></tr>
+  <tr><td><code>whoami</code></td><td>Workspace, quotas, usage, published port range, naming scheme and guidance.</td></tr>
+  <tr><td><code>list_templates</code></td><td>Exposure templates granted to your workspace (how a service gets a public URL).</td></tr>
+  <tr><td><code>validate</code></td><td>Dry-run of <code>deploy</code>: validates the stack, checks quotas and ports, returns hostnames, URLs and resource totals. Starts nothing.</td></tr>
+  <tr><td><code>deploy</code></td><td>Create or update an app from prebuilt images; pulls images, starts services, waits for health checks.</td></tr>
+  <tr><td><code>list</code></td><td>Your apps with service state, health, URLs, published ports and disk usage.</td></tr>
+  <tr><td><code>logs</code></td><td>Recent logs of one service (<code>tail</code> up to 1000 lines, optional <code>since</code>).</td></tr>
+  <tr><td><code>restart</code> / <code>stop</code></td><td>One service, or all services of an app when <code>service</code> is empty. Stop keeps the data.</td></tr>
+  <tr><td><code>delete</code></td><td>Delete an app including its persistent data; <code>confirm</code> must equal the app name.</td></tr>
+</table>
+
+<h2 id="workflow">5. Workflow and rules</h2>
+<ol>
+  <li><code>whoami</code>: learn your limits, port range and naming scheme.</li>
+  <li><code>list_templates</code>: pick an exposure template for every service that needs a URL.</li>
+  <li>Build and push your images in your own CI or registry. The gateway does not build; it only pulls.</li>
+  <li><code>validate</code> the stack, fix every reported field, then <code>deploy</code> the same input.</li>
+  <li><code>list</code> and <code>logs</code> to check the result; redeploy to update.</li>
+</ol>
+<ul>
+  <li><strong>Images</strong> need an explicit tag or digest; <code>:latest</code> is rejected. If a private image cannot be pulled, ask the administrator for registry access.</li>
+  <li><strong>No container configuration</strong>: you never send compose files, labels, networks, capabilities or host paths. The stack is a strict JSON subset; unknown fields are rejected.</li>
+  <li><strong>App names</strong> match <code>^[a-z][a-z0-9-]{0,22}[a-z0-9]$</code>, service names <code>^[a-z][a-z0-9]{0,15}$</code>.</li>
+  <li><strong>Public URLs</strong> only through <code>expose: {"template": "&lt;name&gt;", "port": &lt;container port&gt;}</code>. Host ports only inside your workspace's port range.</li>
+  <li><strong>Internal traffic</strong>: services of one app reach each other only by their full name <code>&lt;workspace&gt;-&lt;app&gt;-&lt;service&gt;</code> (see <code>internal_host</code> in the <code>validate</code> result).</li>
+  <li><strong>Hardened runtime</strong>: all capabilities dropped, no-new-privileges, read-only root filesystem with a <code>/tmp</code> tmpfs, memory/CPU/pids limits. Images that start as root and switch users (postgres, redis, …) need <code>"user": "999:999"</code>; images that write outside volumes need <code>"writable_rootfs": true</code>.</li>
+  <li><strong>Persistent data</strong> only via <code>"volume": {"path": "/container/path"}</code>; it survives redeploys and is deleted with the app.</li>
+  <li><strong>Environment values</strong> are passed literally (no <code>$</code> interpolation) and redacted in the audit log. Every call is audited.</li>
+</ul>
+
+<h3 id="example">Example <code>deploy</code> input</h3>
+<pre><code>{"app": "shop", "stack": {"services": {
+  "web": {"image": "ghcr.io/me/shop:1.4.2", "expose": {"template": "public-web", "port": 8080},
+          "environment": {"DATABASE_URL": "postgres://postgres:change-me@&lt;workspace&gt;-shop-db:5432/shop"},
+          "depends_on": ["db"]},
+  "db":  {"image": "postgres:16.4", "user": "999:999", "volume": {"path": "/var/lib/postgresql/data"},
+          "environment": {"POSTGRES_PASSWORD": "change-me", "POSTGRES_DB": "shop"},
+          "writable_rootfs": true, "healthcheck": {"command": ["pg_isready"]}}
+}}}</code></pre>
+<p class="muted">Replace <code>&lt;workspace&gt;</code> with your workspace name from <code>whoami</code>, <code>public-web</code> with a template
+from <code>list_templates</code>, and <code>change-me</code> with a real secret.</p>
+</main>
+</body>
+</html>

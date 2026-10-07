@@ -136,6 +136,22 @@ func TestPasswordModeSession(t *testing.T) {
 	}
 }
 
+func TestMePublicURLs(t *testing.T) {
+	e := newEnvWith(t, false, builtUI, func(o *Options) {
+		o.AgentURL, o.AdminURL = "https://mcp.example.com", "https://deploy-admin.example.com"
+	})
+	w := e.do("GET", "/api/admin/me", nil, e.login(t))
+	me := decode[map[string]any](t, w)
+	if w.Code != 200 || me["agent_url"] != "https://mcp.example.com" || me["admin_url"] != "https://deploy-admin.example.com" {
+		t.Fatalf("me: %d %v", w.Code, me)
+	}
+	e = newEnv(t, false, builtUI)
+	me = decode[map[string]any](t, e.do("GET", "/api/admin/me", nil, e.login(t)))
+	if me["agent_url"] != "" || me["admin_url"] != "" {
+		t.Fatalf("unset URLs must be empty: %v", me)
+	}
+}
+
 func TestLoginRateLimit(t *testing.T) {
 	e := newEnv(t, false, builtUI)
 	for i := 0; i < 10; i++ {

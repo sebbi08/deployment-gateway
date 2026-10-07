@@ -151,3 +151,42 @@ func TestLoadReservedLabelPrefixes(t *testing.T) {
 		t.Fatalf("invalid prefix accepted: %v", err)
 	}
 }
+
+func TestLoadPublicURLs(t *testing.T) {
+	base := map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": validHash,
+		"MCP_HOST": "mcp.example.com", "ADMIN_HOST": "http://localhost:8081"}
+	c, err := Load(env(base))
+	if err != nil || c.AgentURL != "https://mcp.example.com" || c.AdminURL != "http://localhost:8081" {
+		t.Fatalf("urls: %q %q %v", c.AgentURL, c.AdminURL, err)
+	}
+	base["MCP_HOST"] = "mcp.example.com/mcp"
+	if _, err := Load(env(base)); err == nil || !strings.Contains(err.Error(), "MCP_HOST") {
+		t.Fatalf("MCP_HOST with path accepted: %v", err)
+	}
+}
+
+func TestPublicURL(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                         "",
+		"  ":                       "",
+		"MCP.Example.com":          "https://mcp.example.com",
+		"mcp.example.com:8443":     "https://mcp.example.com:8443",
+		"https://mcp.example.com/": "https://mcp.example.com",
+		"http://localhost:8080":    "http://localhost:8080",
+		"192.0.2.10":               "https://192.0.2.10",
+		"http://[::1]:8080":        "http://[::1]:8080",
+	} {
+		if got, err := PublicURL(in); err != nil || got != want {
+			t.Errorf("PublicURL(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{
+		"ftp://mcp.example.com", "https://mcp.example.com/mcp", "https://u:p@mcp.example.com",
+		"https://mcp.example.com?x=1", "https://mcp.example.com#a", "mcp_example.com", "-mcp.example.com",
+		"mcp.example.com:0", "mcp.example.com:70000", "mcp.example.com:x", "<script>", "https://",
+	} {
+		if got, err := PublicURL(in); err == nil {
+			t.Errorf("PublicURL(%q) = %q, want error", in, got)
+		}
+	}
+}
