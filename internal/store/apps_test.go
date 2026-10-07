@@ -152,3 +152,21 @@ func TestSettings(t *testing.T) {
 		t.Fatalf("retention = %d", d)
 	}
 }
+
+// whoami lists the port claims of the caller's workspace only.
+func TestListPortClaimsIsScopedToWorkspace(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	alice := newWorkspace(t, s, "alice", 20000, 20099)
+	bob := newWorkspace(t, s, "bob", 20100, 20199)
+	if _, err := s.SaveDeployment(ctx, alice.ID, "shop", 1, 0.1, nil, []PortClaim{{Protocol: "tcp", HostPort: 20001, ContainerPort: 80, Service: "web"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SaveDeployment(ctx, bob.ID, "blog", 1, 0.1, nil, []PortClaim{{Protocol: "tcp", HostPort: 20101, ContainerPort: 80, Service: "web"}}); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := s.ListPortClaims(ctx, alice.ID)
+	if err != nil || len(claims) != 1 || claims[0].App != "shop" {
+		t.Fatalf("alice's claims = %+v, %v", claims, err)
+	}
+}
