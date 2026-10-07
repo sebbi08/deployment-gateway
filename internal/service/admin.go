@@ -124,7 +124,15 @@ func (s *Service) SaveTemplate(ctx context.Context, actor string, id int64, t tm
 
 func (s *Service) SetGrants(ctx context.Context, actor string, w store.Workspace, templateIDs []int64) (err error) {
 	defer s.adminTrack(ctx, actor, w.Name, "set_grants", templateIDs, &err)()
-	return s.Store.SetGrants(ctx, w.ID, templateIDs)
+	ids := slices.Compact(slices.Sorted(slices.Values(templateIDs)))
+	for _, id := range ids {
+		if _, err := s.Store.GetTemplate(ctx, id); errors.Is(err, store.ErrNotFound) {
+			return validationError("template_ids", fmt.Sprintf("template %d does not exist", id))
+		} else if err != nil {
+			return err
+		}
+	}
+	return s.Store.SetGrants(ctx, w.ID, ids)
 }
 
 func (s *Service) UpdateWorkspace(ctx context.Context, actor string, w store.Workspace) (err error) {

@@ -283,3 +283,14 @@ func TestTemplateHostChangesRefusedWhileAppsHoldHosts(t *testing.T) {
 		t.Fatalf("delete after the app is gone: %v", err)
 	}
 }
+
+func TestSetGrantsValidatesTemplateIDs(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	if err := h.svc.SetGrants(h.ctx, "admin", p.Workspace, []int64{h.tplID, h.tplID}); err != nil {
+		t.Fatalf("duplicate IDs must be accepted once: %v", err)
+	}
+	if err := h.svc.SetGrants(h.ctx, "admin", p.Workspace, []int64{h.tplID, 9999}); code(err) != service.CodeValidation {
+		t.Fatalf("unknown template ID: %v", err)
+	}
+}
