@@ -83,8 +83,9 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 ## Plausible (2 of 3 verifiers upheld)
 
   - Done: README operator checklist and spec §17 recommend default-address-pools; startup warns when the daemon uses its built-in pools. No global app cap (admin sizes max_apps).
-- [ ] **P1** (F08, plausible) Template validation keeps hosts unique but not Traefik router/service label names — [internal/tmpl/tmpl.go:80](../../../internal/tmpl/tmpl.go#L80)
+- [x] **P1** (F08, plausible) Template validation keeps hosts unique but not Traefik router/service label names — [internal/tmpl/tmpl.go:80](../../../internal/tmpl/tmpl.go#L80)
   - Fix: In tmpl.Validate, parse keys of the form `traefik.(http|tcp|udp).(routers|services|middlewares|serverstransports).<name>.…`. Reject them unless `<name>` contains {{id}}; this also covers templates shared by several services. Literal middleware names could instead produce a preview warning. Add a test that rejects `routers.{{app}}`, `services.{{app}}` and `routers.web`. State in README and spec §8 that names of …
+  - Done: tmpl.Validate requires {{id}} in Traefik router and service names (http/tcp/udp); shared middleware definitions stay allowed. Existing templates are not re-validated until saved.
 - [ ] **P2** (F35, plausible) FILE_OWNER owns gateway-managed dirs and compose files, so that host uid becomes root-equivalent — [internal/service/deploy.go:194](../../../internal/service/deploy.go#L194)
   - Fix: Keep everything on the bind-path chain and every file compose runs owned by root: the app dir, data/, docker-compose\*.yml. Give FILE_OWNER read access through its group only (root:<gid>, 0750 dirs, 0640 files). Otherwise use os.Lchown, open with O_NOFOLLOW / openat2 RESOLVE_BENEATH|NO_SYMLINKS, and Lstat-reject symlinks before rename and chown. Also document that a FILE_OWNER uid with write access is root-equivalent.
 - [ ] **P3** (F07, plausible) Root containers can plant setuid-root binaries on the host in data/<svc>; no nosuid/nodev guidance — [internal/service/deploy.go:206](../../../internal/service/deploy.go#L206)

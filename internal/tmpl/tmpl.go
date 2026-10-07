@@ -102,10 +102,29 @@ func Validate(t Template, others []Template) error {
 		}
 	}
 	checkKeyCollisions(t, add)
+	checkTraefikNames(t, add)
 	if len(errs) > 0 {
 		return errs
 	}
 	return nil
+}
+
+// traefikObjectRe matches Traefik router and service labels and captures the
+// object name.
+var traefikObjectRe = regexp.MustCompile(`(?i)^traefik\.(?:http|tcp|udp)\.(?:routers|services)\.([^.]+)\.`)
+
+// checkTraefikNames requires {{id}} in every Traefik router and service
+// name. Traefik's docker provider shares one namespace across all
+// containers: names built from {{app}} or literals collide between
+// workspaces (and with the host's own stacks), and Traefik then drops or
+// merges the routers, which breaks or hijacks another tenant's routing.
+// Middleware definitions may be shared (identical definitions are fine).
+func checkTraefikNames(t Template, add func(string)) {
+	for _, k := range slices.Sorted(maps.Keys(t.Labels)) {
+		if m := traefikObjectRe.FindStringSubmatch(k); m != nil && !strings.Contains(m[1], "{{id}}") {
+			add("label " + strconv.Quote(k) + ": Traefik router and service names must contain {{id}} so they are unique per deployed service")
+		}
+	}
 }
 
 // checkKeyCollisions rejects label keys that can render to the same key

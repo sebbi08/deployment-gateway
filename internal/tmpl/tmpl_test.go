@@ -26,6 +26,11 @@ func TestValidateAcceptsExamples(t *testing.T) {
 		publicWeb(),
 		{Name: "per-service", HostPattern: "{{service}}-{{app}}-{{workspace}}.svc.example.com", Networks: []string{"apps"}},
 		{Name: "internal", Networks: []string{"apps"}, Labels: map[string]string{"traefik.enable": "false"}},
+		{Name: "shared-middleware", Networks: []string{"apps"}, Labels: map[string]string{
+			"traefik.http.middlewares.compress.compress":              "true",
+			"traefik.http.routers.{{id}}.middlewares":                 "compress@docker",
+			"traefik.http.services.{{id}}-x.loadbalancer.server.port": "{{port}}",
+		}},
 	}
 	for _, tpl := range ok {
 		if err := Validate(tpl, nil); err != nil {
@@ -63,6 +68,9 @@ func TestValidateRejects(t *testing.T) {
 			t.Labels["x.{{service}}"] = "2"
 		}, "render to the same label"},
 		{"keys differ only in case", func(t *Template) { t.Labels["Traefik.enable"] = "false" }, "render to the same label"},
+		{"router name without {{id}}", func(t *Template) { t.Labels["traefik.http.routers.{{app}}.rule"] = "Host(`x`)" }, "must contain {{id}}"},
+		{"literal service name", func(t *Template) { t.Labels["traefik.http.services.web.loadbalancer.server.port"] = "80" }, "must contain {{id}}"},
+		{"tcp router name without {{id}}", func(t *Template) { t.Labels["traefik.tcp.routers.db-{{workspace}}.rule"] = "HostSNI(`*`)" }, "must contain {{id}}"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
