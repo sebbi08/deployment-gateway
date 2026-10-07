@@ -272,7 +272,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: TestListAppsIsScopedToWorkspace (two workspaces, same app name in both) fails when the workspace filter is dropped.
 - [x] **T10** Default TRUSTED_PROXIES + blocking valid tokens: 10 anonymous requests lock out every agent — [internal/agentauth/agentauth.go:31](../../../internal/agentauth/agentauth.go#L31)
   - Done: covered by TestVerifyValidTokenPassesFromBlockedIP and TestVerifyLogsFailuresAndBlockOnce (H1).
-- [ ] **T11** No test fails when proxy mode accepts a forged identity header from an untrusted peer — [internal/admin/server.go:114](../../../internal/admin/server.go#L114)
+- [x] **T11** No test fails when proxy mode accepts a forged identity header from an untrusted peer — [internal/admin/server.go:114](../../../internal/admin/server.go#L114)
+  - Done: TestProxyModeRejectsIdentityHeaderFromUntrustedPeer: forged header from 10.0.0.2 gets 403 (mutant returned 200).
 - [ ] **T12** No test fails when admin session IDs become constant or 16-bit — [internal/auth/sessions.go:30](../../../internal/auth/sessions.go#L30)
 - [ ] **T13** No test fails when the token hash covers only the displayed 12-char prefix — [internal/auth/token.go:26](../../../internal/auth/token.go#L26)
 - [ ] **T14** No test fails when the admin body limit (public login endpoint) is removed — [internal/admin/server.go:260](../../../internal/admin/server.go#L260)
