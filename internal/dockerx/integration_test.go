@@ -5,6 +5,7 @@ package dockerx
 import (
 	"context"
 	"os/exec"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -80,6 +81,81 @@ func TestIntegrationDefaultRuntimeAllowed(t *testing.T) {
 	rt, err := c.DefaultRuntime(context.Background())
 	if err != nil || !RuntimeAllowed(rt, nil) {
 		t.Fatalf("default runtime %q (%v)", rt, err)
+	}
+}
+
+// The pre-up image check sees the image's own LABELs.
+func TestIntegrationImageLabels(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	labels, err := c.ImageLabels(context.Background(), "nginxinc/nginx-unprivileged:1.27-alpine")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := labels["org.opencontainers.image.title"]; got != "docker-nginx-unprivileged" {
+		t.Fatalf("image title label = %q (labels %v)", got, labels)
+	}
+}
+
+// Inspect maps the real HostConfig into Facts; the layer-3 check sees only
+// what this mapping copies. The container is created, never started.
+func TestIntegrationInspectFacts(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := t.TempDir()
+	const name = "dgrev-inspect"
+	out, err := exec.Command("docker", "create", "--name", name,
+		"--label", "deploy-gateway.workspace=dgrevinspect",
+		"--privileged", "--cap-add", "NET_ADMIN", "--cap-drop", "ALL",
+		"--security-opt", "no-new-privileges:true",
+		"--pid", "host", "--ipc", "host", "--uts", "host", "--userns", "host", "--runtime", "runc",
+		"--device", "/dev/null:/dev/xnull", "--memory", "64m", "--pids-limit", "64",
+		"-p", "127.0.0.1:20999:8080/udp", "-v", data+":/data",
+		"nginxinc/nginx-unprivileged:1.27-alpine").CombinedOutput()
+	if err != nil {
+		t.Fatalf("create: %v %s", err, out)
+	}
+	t.Cleanup(func() { exec.Command("docker", "rm", "-f", "-v", name).Run() })
+	f, err := c.Inspect(context.Background(), strings.TrimSpace(string(out)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Docker may spell capabilities with a CAP_ prefix and adds options
+	// such as label=disable for host namespaces.
+	if len(f.CapAdd) != 1 || strings.TrimPrefix(f.CapAdd[0], "CAP_") != "NET_ADMIN" {
+		t.Errorf("CapAdd = %v", f.CapAdd)
+	}
+	if !slices.Contains(f.SecurityOpt, "no-new-privileges:true") {
+		t.Errorf("SecurityOpt = %v", f.SecurityOpt)
+	}
+	f.CapAdd, f.SecurityOpt = nil, nil
+	want := Facts{
+		Name:         name,
+		Privileged:   true,
+		CapDrop:      []string{"ALL"},
+		NetworkMode:  "bridge",
+		PidMode:      "host",
+		IpcMode:      "host",
+		UTSMode:      "host",
+		UsernsMode:   "host",
+		Runtime:      "runc",
+		Devices:      1,
+		Memory:       64 << 20,
+		PidsLimit:    64,
+		Mounts:       []MountFact{{Type: "bind", Source: data, Destination: "/data"}},
+		PortBindings: []PortFact{{ContainerPort: 8080, Protocol: "udp", HostIP: "127.0.0.1", HostPort: 20999}},
+		State:        "created",
+	}
+	if f.Labels["deploy-gateway.workspace"] != "dgrevinspect" || f.Labels["org.opencontainers.image.title"] == "" {
+		t.Errorf("labels = %v, want own and image labels", f.Labels)
+	}
+	f.Labels = nil
+	if !reflect.DeepEqual(f, want) {
+		t.Fatalf("Inspect =\n%+v\nwant\n%+v", f, want)
 	}
 }
 

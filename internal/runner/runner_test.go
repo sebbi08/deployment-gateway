@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -104,6 +106,48 @@ func TestTimeoutKillsProcess(t *testing.T) {
 	}
 	if time.Since(start) > 10*time.Second {
 		t.Fatal("process was not killed promptly")
+	}
+}
+
+// A timeout kills compose's whole process group: a child that survived
+// would keep the output pipe open until WaitDelay and outlive the run.
+func TestTimeoutKillsProcessGroup(t *testing.T) {
+	bin, dir := fakeCompose(t, `sleep 30 & echo $! > "$(dirname "$0")/child"; wait`)
+	r := New(Options{Bin: bin, Timeout: time.Minute, Concurrency: 1})
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	begin := time.Now()
+	if _, err := r.Up(ctx, "/f.yml", "dg-a-b"); err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("err = %v", err)
+	}
+	// Well below the 5s WaitDelay, which would end the run anyway.
+	if d := time.Since(begin); d > 3*time.Second {
+		t.Errorf("run took %v: the child kept the output pipe open", d)
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(read(t, dir+"/child")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { syscall.Kill(pid, syscall.SIGKILL) })
+	// The killed child may briefly linger as a zombie until it is reaped.
+	for deadline := time.Now().Add(2 * time.Second); syscall.Kill(pid, 0) == nil; time.Sleep(20 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("child %d survived the timeout", pid)
+		}
+	}
+}
+
+// Compose output is capped to its newest 64 KiB: the decisive error is at
+// the end.
+func TestOutputKeepsTail(t *testing.T) {
+	bin, _ := fakeCompose(t, `head -c 100000 /dev/zero | tr '\0' x; echo; echo END`)
+	r := New(Options{Bin: bin, Timeout: time.Minute, Concurrency: 1})
+	out, err := r.Up(context.Background(), "/f.yml", "dg-a-b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 64<<10 || !strings.HasSuffix(out, "x\nEND\n") {
+		t.Fatalf("output: %d bytes, ends %q", len(out), out[max(0, len(out)-10):])
 	}
 }
 

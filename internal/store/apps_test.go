@@ -171,6 +171,26 @@ func TestListPortClaimsIsScopedToWorkspace(t *testing.T) {
 	}
 }
 
+// Only the same app in the same workspace may re-claim a port: an app of
+// the same name in another workspace is a conflict.
+func TestPortConflictsExcludeOnlyTheSameApp(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	alice := newWorkspace(t, s, "alice", 20000, 20099)
+	bob := newWorkspace(t, s, "bob", 20100, 20199)
+	claim := PortClaim{Protocol: "tcp", HostPort: 20101, ContainerPort: 80, Service: "web"}
+	if _, err := s.SaveDeployment(ctx, bob.ID, "shop", 1, 0.1, nil, []PortClaim{claim}); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := s.PortConflicts(ctx, bob.ID, "shop", []PortClaim{claim}); err != nil || len(c) != 0 {
+		t.Fatalf("own claim reported as conflict: %+v, %v", c, err)
+	}
+	c, err := s.PortConflicts(ctx, alice.ID, "shop", []PortClaim{claim})
+	if err != nil || len(c) != 1 || c[0].App != "shop" || c[0].HostPort != 20101 {
+		t.Fatalf("conflicts = %+v, %v", c, err)
+	}
+}
+
 // The agent list shows the caller's apps only.
 func TestListAppsIsScopedToWorkspace(t *testing.T) {
 	ctx := context.Background()

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/sebbi08/deployment-gateway/internal/tmpl"
 )
@@ -210,5 +211,61 @@ func TestRevokeWorkspaceTokens(t *testing.T) {
 	// Idempotent, also for workspaces without active tokens.
 	if err := s.RevokeWorkspaceTokens(ctx, alice.ID); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A token revoked earlier keeps its revocation time when the whole
+// workspace is revoked later.
+func TestRevokeWorkspaceTokensKeepsEarlierRevocation(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	clock := time.Unix(1_700_000_000, 0)
+	s.now = func() time.Time { return clock }
+	w := newWorkspace(t, s, "alice", 0, 0)
+	old, err := s.CreateToken(ctx, w.ID, "old", "old", "dgw_old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateToken(ctx, w.ID, "new", "new", "dgw_new"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RevokeToken(ctx, old.ID); err != nil {
+		t.Fatal(err)
+	}
+	revokedAt := clock
+	clock = clock.Add(time.Hour)
+	if err := s.RevokeWorkspaceTokens(ctx, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListTokens(ctx, w.ID)
+	if err != nil || len(list) != 2 {
+		t.Fatalf("ListTokens = %+v, %v", list, err)
+	}
+	for _, tok := range list {
+		want := clock
+		if tok.ID == old.ID {
+			want = revokedAt
+		}
+		if tok.RevokedAt == nil || !tok.RevokedAt.Equal(want) {
+			t.Errorf("token %s revoked at %v, want %v", tok.Label, tok.RevokedAt, want)
+		}
+	}
+}
+
+// The admin token list of a workspace shows that workspace's tokens only.
+func TestListTokensIsScopedToWorkspace(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	alice := newWorkspace(t, s, "alice", 0, 0)
+	bob := newWorkspace(t, s, "bob", 0, 0)
+	if _, err := s.CreateToken(ctx, alice.ID, "a1", "a1", "dgw_a1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateToken(ctx, bob.ID, "b1", "b1", "dgw_b1"); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.ListTokens(ctx, alice.ID)
+	if err != nil || len(list) != 1 || list[0].Label != "a1" || list[0].WorkspaceID != alice.ID {
+		t.Fatalf("alice's tokens = %+v, %v", list, err)
 	}
 }
