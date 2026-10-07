@@ -232,6 +232,10 @@ func validateVolume(errs *Errors, f, p string) {
 		errs.add(f, "must be normalized (no .., //, or trailing /)")
 	case p == "/":
 		errs.add(f, "must not be /")
+	case strings.Contains(p, "docker.sock"):
+		// The post-render verifier treats any docker.sock path as a
+		// security violation; reject it here with a field error.
+		errs.add(f, "must not contain docker.sock")
 	default:
 		for _, pre := range forbiddenVolumePrefixes {
 			if p == pre || strings.HasPrefix(p, pre+"/") {

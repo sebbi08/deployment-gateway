@@ -95,6 +95,7 @@ func TestValidateRejects(t *testing.T) {
 		{"volume relative", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.Volume.Path = "data" }) }, "services.db.volume.path"},
 		{"volume traversal", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.Volume.Path = "/data/../etc" }) }, "normalized"},
 		{"volume proc", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.Volume.Path = "/proc/x" }) }, "/proc"},
+		{"volume docker.sock", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.Volume.Path = "/var/run/docker.sock" }) }, "docker.sock"},
 		{"volume tmp", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.Volume.Path = "/tmp" }) }, "/tmp"},
 		{"volume root", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.Volume.Path = "/" }) }, "must not be /"},
 		{"volume dollar", func(s *Stack, _ *Limits) { edit(s, "db", func(v *Service) { v.Volume.Path = "/data$HOME" }) }, "services.db.volume.path"},
