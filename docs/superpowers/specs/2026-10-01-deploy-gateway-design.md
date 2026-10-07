@@ -121,7 +121,7 @@ If a non-gateway container already has a composed name, compose fails and the de
     "web": {
       "image": "ghcr.io/me/shop:1.4.2",
       "command": ["node", "server.js"],
-      "environment": { "DATABASE_URL": "postgres://alice-shop-db:5432/shop" },
+      "environment": { "DATABASE_URL": "postgres://postgres:change-me@alice-shop-db:5432/shop" },
       "expose": { "template": "public-web", "port": 8080 },
       "healthcheck": { "command": ["wget", "-qO-", "http://localhost:8080/health"], "interval": "10s", "retries": 3 },
       "depends_on": ["db"],
@@ -130,7 +130,9 @@ If a non-gateway container already has a composed name, compose fails and the de
     "db": {
       "image": "postgres:16.4",
       "user": "999:999",
+      "environment": { "POSTGRES_PASSWORD": "change-me", "POSTGRES_DB": "shop" },
       "volume": { "path": "/var/lib/postgresql/data" },
+      "healthcheck": { "command": ["pg_isready"] },
       "writable_rootfs": true
     }
   }

@@ -81,11 +81,14 @@ Example stack:
 ```json
 {"app": "shop", "stack": {"services": {
   "web": {"image": "ghcr.io/me/shop:1.4.2", "expose": {"template": "public-web", "port": 8080},
-          "environment": {"DATABASE_URL": "postgres://alice-shop-db:5432/shop"}, "depends_on": ["db"]},
+          "environment": {"DATABASE_URL": "postgres://postgres:change-me@alice-shop-db:5432/shop"}, "depends_on": ["db"]},
   "db":  {"image": "postgres:16.4", "user": "999:999", "volume": {"path": "/var/lib/postgresql/data"},
+          "environment": {"POSTGRES_PASSWORD": "change-me", "POSTGRES_DB": "shop"},
           "writable_rootfs": true, "healthcheck": {"command": ["pg_isready"]}}
 }}}
 ```
+
+Use a real secret instead of `change-me`; environment values are redacted in the audit log.
 
 ## Trying it out
 
