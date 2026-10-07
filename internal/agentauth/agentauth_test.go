@@ -310,3 +310,19 @@ func TestInternalAuthErrorsAreLogged(t *testing.T) {
 		t.Fatal("token logged")
 	}
 }
+
+// The SDK writes the verifier's error text into the response body, so store
+// errors must not reach unauthenticated MCP clients.
+func TestMCPVerifierMasksInternalErrors(t *testing.T) {
+	a, tok := setup(t)
+	var buf bytes.Buffer
+	a.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+	a.Store.Close()
+	_, err := a.MCPVerifier()(context.Background(), tok, httptest.NewRequest("POST", "/mcp", nil))
+	if err == nil || strings.Contains(err.Error(), "sql") || strings.Contains(err.Error(), "database") {
+		t.Fatalf("verifier error leaks internals: %v", err)
+	}
+	if !strings.Contains(buf.String(), "agent auth error") {
+		t.Fatalf("internal error not logged: %q", buf.String())
+	}
+}

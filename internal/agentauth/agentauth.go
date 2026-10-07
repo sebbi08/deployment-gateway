@@ -117,12 +117,15 @@ func FromContext(ctx context.Context) (service.Principal, bool) {
 // binds MCP sessions to the token that created them.
 func (a *Authenticator) MCPVerifier() sdkauth.TokenVerifier {
 	return func(ctx context.Context, token string, r *http.Request) (*sdkauth.TokenInfo, error) {
-		p, err := a.Verify(ctx, token, auth.ClientIP(r, a.TrustedProxies))
+		ip := auth.ClientIP(r, a.TrustedProxies)
+		p, err := a.Verify(ctx, token, ip)
 		if errors.Is(err, ErrUnauthorized) {
 			return nil, sdkauth.ErrInvalidToken
 		}
 		if err != nil {
-			return nil, err
+			// The SDK writes this error's text into the response body.
+			a.logger().Error("agent auth error", "client_ip", ip, "err", err)
+			return nil, errors.New("internal error")
 		}
 		return &sdkauth.TokenInfo{UserID: fmt.Sprintf("token:%d", p.TokenID), Extra: map[string]any{"principal": p}}, nil
 	}
