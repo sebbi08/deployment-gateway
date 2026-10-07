@@ -24,6 +24,8 @@ type Options struct {
 	Concurrency  int
 	// QueueTimeout bounds the wait for a compose slot (default: Timeout).
 	QueueTimeout time.Duration
+	// Grace is added to Timeout for one compose run (default 30s).
+	Grace time.Duration
 }
 
 // ErrShuttingDown is returned for operations started after Shutdown.
@@ -70,6 +72,9 @@ func New(o Options) *Runner {
 	}
 	if o.QueueTimeout <= 0 {
 		o.QueueTimeout = o.Timeout
+	}
+	if o.Grace <= 0 {
+		o.Grace = 30 * time.Second
 	}
 	return &Runner{opts: o, sem: make(chan struct{}, o.Concurrency), locks: map[string]bool{}, wsQueues: map[string]chan struct{}{}}
 }
@@ -177,7 +182,7 @@ func (r *Runner) run(ctx context.Context, file, project string, args ...string) 
 	r.mu.Unlock()
 	defer r.running.Done()
 
-	ctx, cancel := context.WithTimeout(ctx, r.opts.Timeout+30*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, r.opts.Timeout+r.opts.Grace)
 	defer cancel()
 	argv := append([]string{"-f", file, "-p", project}, args...)
 	cmd := exec.CommandContext(ctx, r.opts.Bin, argv...)

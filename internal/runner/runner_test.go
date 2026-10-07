@@ -196,3 +196,18 @@ func TestShutdownWaitsForRunningOperations(t *testing.T) {
 		t.Fatalf("new operation after Shutdown: %v", err)
 	}
 }
+
+// Callers detach compose from the request context, so the runner's own
+// timeout is the only thing that stops a hanging compose.
+func TestRunnerTimeoutStopsHangingCompose(t *testing.T) {
+	bin, _ := fakeCompose(t, "sleep 30")
+	r := New(Options{Bin: bin, Timeout: 200 * time.Millisecond, Grace: time.Millisecond, Concurrency: 1})
+	begin := time.Now()
+	_, err := r.Stop(context.WithoutCancel(context.Background()), "/nonexistent/x.yml", "dg-alice-a1", "")
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("want a timeout error, got %v", err)
+	}
+	if d := time.Since(begin); d > 10*time.Second {
+		t.Fatalf("compose ran %v despite the timeout", d)
+	}
+}
