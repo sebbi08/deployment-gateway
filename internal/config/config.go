@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/sebbi08/deployment-gateway/internal/auth"
 )
 
 type Config struct {
@@ -94,8 +96,8 @@ func Load(getenv func(string) string) (Config, error) {
 		if len(c.AdminTrustedProxies) == 0 || c.AdminUserHeader == "" {
 			errs = append(errs, "ADMIN_PASSWORD_HASH is empty (proxy mode): ADMIN_TRUSTED_PROXIES and ADMIN_USER_HEADER are required")
 		}
-	} else if !strings.HasPrefix(c.AdminPasswordHash, "$argon2id$") {
-		errs = append(errs, "ADMIN_PASSWORD_HASH must be an argon2id hash (use `deploy-gateway hash-password`)")
+	} else if err := auth.ValidPasswordHash(c.AdminPasswordHash); err != nil {
+		errs = append(errs, "ADMIN_PASSWORD_HASH is not a usable argon2id hash ("+err.Error()+"); generate one with `deploy-gateway hash-password`")
 	}
 	if len(errs) > 0 {
 		return Config{}, errors.New(strings.Join(errs, "; "))

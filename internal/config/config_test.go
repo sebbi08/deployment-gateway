@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/sebbi08/deployment-gateway/internal/auth"
 )
 
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
@@ -11,7 +13,7 @@ func env(m map[string]string) func(string) string { return func(k string) string
 func TestLoadDefaultsPasswordMode(t *testing.T) {
 	c, err := Load(env(map[string]string{
 		"WORKSPACES_ROOT":     "/srv/dg/workspaces",
-		"ADMIN_PASSWORD_HASH": "$argon2id$v=19$m=65536,t=3,p=2$c2FsdA$aGFzaA",
+		"ADMIN_PASSWORD_HASH": validHash,
 	}))
 	if err != nil {
 		t.Fatal(err)
@@ -40,7 +42,7 @@ func TestLoadProxyMode(t *testing.T) {
 
 func TestLoadErrors(t *testing.T) {
 	base := func() map[string]string {
-		return map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": "$argon2id$x"}
+		return map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": validHash}
 	}
 	cases := map[string]func(map[string]string){
 		"missing root":     func(m map[string]string) { delete(m, "WORKSPACES_ROOT") },
@@ -73,7 +75,7 @@ func TestLoadReportsAllErrors(t *testing.T) {
 }
 
 func TestLoadFileOwner(t *testing.T) {
-	base := map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": "$argon2id$x"}
+	base := map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": validHash}
 	c, err := Load(env(base))
 	if err != nil || c.FileOwnerSet {
 		t.Fatalf("unset FILE_OWNER: %+v %v", c, err)
@@ -90,3 +92,30 @@ func TestLoadFileOwner(t *testing.T) {
 		}
 	}
 }
+
+// A placeholder or truncated hash used to start the gateway in password
+// mode with a login that can never succeed.
+func TestLoadRejectsUnusablePasswordHash(t *testing.T) {
+	for _, h := range []string{
+		"$argon2id$v=19$m=65536,t=3,p=2$REPLACE$REPLACE",
+		"$argon2id$v=19$m=65536,t=3,p=2$c2FsdHNhbHRzYWx0c2FsdA",
+		"$argon2id$x",
+	} {
+		_, err := Load(env(map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": h}))
+		if err == nil || !strings.Contains(err.Error(), "ADMIN_PASSWORD_HASH") {
+			t.Errorf("hash %q accepted: %v", h, err)
+		}
+	}
+	good, _ := auth.HashPassword("pw")
+	if _, err := Load(env(map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": good})); err != nil {
+		t.Fatalf("valid hash rejected: %v", err)
+	}
+}
+
+var validHash = func() string {
+	h, err := auth.HashPassword("test")
+	if err != nil {
+		panic(err)
+	}
+	return h
+}()
