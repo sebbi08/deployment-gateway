@@ -266,7 +266,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: TestDeployTotalQuotasCountOtherApps kills both mutants (memory and cpu sums) and pins that a redeploy excludes its own resources.
 - [x] **T7** No test fails when prepare stops holding the workspace mutex (quota race) — [internal/service/deploy.go:126](../../../internal/service/deploy.go#L126)
   - Done: TestPrepareHoldsWorkspaceMutex (internal) fails when prepare drops the lock.
-- [ ] **T8** No test fails when ListPortClaims is not scoped to the workspace (cross-tenant leak via whoami) — [internal/store/apps.go:174](../../../internal/store/apps.go#L174)
+- [x] **T8** No test fails when ListPortClaims is not scoped to the workspace (cross-tenant leak via whoami) — [internal/store/apps.go:174](../../../internal/store/apps.go#L174)
+  - Done: TestListPortClaimsIsScopedToWorkspace (two workspaces) fails when the workspace filter is dropped.
 - [ ] **T9** No test fails when ListApps is not scoped to the workspace (agent list shows other tenants' apps) — [internal/store/apps.go:67](../../../internal/store/apps.go#L67)
 - [x] **T10** Default TRUSTED_PROXIES + blocking valid tokens: 10 anonymous requests lock out every agent — [internal/agentauth/agentauth.go:31](../../../internal/agentauth/agentauth.go#L31)
   - Done: covered by TestVerifyValidTokenPassesFromBlockedIP and TestVerifyLogsFailuresAndBlockOnce (H1).
