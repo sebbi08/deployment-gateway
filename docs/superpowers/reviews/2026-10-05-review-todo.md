@@ -268,7 +268,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: TestPrepareHoldsWorkspaceMutex (internal) fails when prepare drops the lock.
 - [x] **T8** No test fails when ListPortClaims is not scoped to the workspace (cross-tenant leak via whoami) — [internal/store/apps.go:174](../../../internal/store/apps.go#L174)
   - Done: TestListPortClaimsIsScopedToWorkspace (two workspaces) fails when the workspace filter is dropped.
-- [ ] **T9** No test fails when ListApps is not scoped to the workspace (agent list shows other tenants' apps) — [internal/store/apps.go:67](../../../internal/store/apps.go#L67)
+- [x] **T9** No test fails when ListApps is not scoped to the workspace (agent list shows other tenants' apps) — [internal/store/apps.go:67](../../../internal/store/apps.go#L67)
+  - Done: TestListAppsIsScopedToWorkspace (two workspaces, same app name in both) fails when the workspace filter is dropped.
 - [x] **T10** Default TRUSTED_PROXIES + blocking valid tokens: 10 anonymous requests lock out every agent — [internal/agentauth/agentauth.go:31](../../../internal/agentauth/agentauth.go#L31)
   - Done: covered by TestVerifyValidTokenPassesFromBlockedIP and TestVerifyLogsFailuresAndBlockOnce (H1).
 - [ ] **T11** No test fails when proxy mode accepts a forged identity header from an untrusted peer — [internal/admin/server.go:114](../../../internal/admin/server.go#L114)
