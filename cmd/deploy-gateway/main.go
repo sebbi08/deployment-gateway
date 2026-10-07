@@ -168,6 +168,10 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		Timeout: cfg.DeployTimeout, Concurrency: cfg.DeployConcurrency})
 	svc := service.New(st, run, dc, root)
 	svc.Logger = logger
+	if err := checkDefaultRuntime(ctx, dc, cfg.ExtraRuntimes); err != nil {
+		return err
+	}
+	svc.ExtraRuntimes = cfg.ExtraRuntimes
 	if cfg.FileOwnerSet {
 		svc.FileOwner = &service.Owner{UID: cfg.FileUID, GID: cfg.FileGID}
 		logger.Info("FILE_OWNER: workspace folders and compose files stay owned by root; the group gets read access", "gid", cfg.FileGID)
@@ -247,6 +251,23 @@ func newAuthenticator(st *store.Store, cfg config.Config, logger *slog.Logger) *
 	return &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute),
 		TrustedProxies: cfg.TrustedProxies, Logger: logger, MaxInFlight: maxInFlightPerToken,
 		RateBurst: rateBurstPerToken, RatePerSecond: ratePerTokenPerSec}
+}
+
+type defaultRuntime interface {
+	DefaultRuntime(context.Context) (string, error)
+}
+
+// checkDefaultRuntime refuses a daemon whose default runtime the runtime
+// check does not allow: every deploy would be torn down.
+func checkDefaultRuntime(ctx context.Context, d defaultRuntime, extra []string) error {
+	rt, err := d.DefaultRuntime(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the Docker default runtime: %w", err)
+	}
+	if !dockerx.RuntimeAllowed(rt, extra) {
+		return fmt.Errorf("the Docker default runtime %q is not allowed; use runc, or add a hardened runtime to EXTRA_RUNTIMES (nvidia runtimes are never allowed)", rt)
+	}
+	return nil
 }
 
 type addressPools interface {

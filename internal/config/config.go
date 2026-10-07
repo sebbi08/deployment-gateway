@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/netip"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -31,7 +32,11 @@ type Config struct {
 	FileOwnerSet bool
 	FileUID      int
 	FileGID      int
+	// EXTRA_RUNTIMES: hardened runtimes allowed besides runc (e.g. runsc).
+	ExtraRuntimes []string
 }
+
+var runtimeNameRe = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$`)
 
 // ProxyMode is true when the built-in admin login is disabled and a trusted
 // forward-auth proxy authenticates admins.
@@ -82,6 +87,18 @@ func Load(getenv func(string) string) (Config, error) {
 			errs = append(errs, "FILE_OWNER must be numeric uid:gid (e.g. 1000:1000)")
 		} else {
 			c.FileOwnerSet, c.FileUID, c.FileGID = true, uid, gid
+		}
+	}
+	for _, r := range strings.Split(getenv("EXTRA_RUNTIMES"), ",") {
+		r = strings.TrimSpace(r)
+		switch {
+		case r == "":
+		case !runtimeNameRe.MatchString(r):
+			errs = append(errs, fmt.Sprintf("EXTRA_RUNTIMES: invalid runtime name %q", r))
+		case strings.Contains(strings.ToLower(r), "nvidia"):
+			errs = append(errs, "EXTRA_RUNTIMES: nvidia runtimes are not allowed (their hooks act on agent-controlled environment)")
+		default:
+			c.ExtraRuntimes = append(c.ExtraRuntimes, r)
 		}
 	}
 	if s := getenv("DEPLOY_CONCURRENCY"); s != "" {

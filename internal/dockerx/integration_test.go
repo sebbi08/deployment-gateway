@@ -70,3 +70,14 @@ func TestIntegrationRemoveAppNetwork(t *testing.T) {
 		t.Fatalf("missing network: %v", err)
 	}
 }
+
+func TestIntegrationDefaultRuntimeAllowed(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rt, err := c.DefaultRuntime(context.Background())
+	if err != nil || !RuntimeAllowed(rt, nil) {
+		t.Fatalf("default runtime %q (%v)", rt, err)
+	}
+}

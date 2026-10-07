@@ -61,7 +61,9 @@ type Service struct {
 	// folders and compose files (FILE_OWNER); they stay owned by root. Service
 	// data dirs keep the container user's ownership.
 	FileOwner *Owner
-	Logger    *slog.Logger
+	// ExtraRuntimes are container runtimes allowed besides runc (EXTRA_RUNTIMES).
+	ExtraRuntimes []string
+	Logger        *slog.Logger
 
 	wsLocks sync.Map // workspace name -> *sync.Mutex
 	// adminMu serialises admin changes whose uniqueness checks compare with

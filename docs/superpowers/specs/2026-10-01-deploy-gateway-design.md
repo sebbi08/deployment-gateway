@@ -234,7 +234,7 @@ Output is marshalled with `gopkg.in/yaml.v3` from typed structs (never string co
    - Owner labels equal the token's workspace/app; only the gateway's own four `deploy-gateway.*` labels exist.
    - No unescaped `$` (single `$` not followed by `$`) in any string value.
    Verifier failure aborts the deploy before compose runs and is audited as `critical` (it indicates a gateway bug).
-3. **Runtime inspect** (`dockerx`) — after `compose up`, for each container of the project: `Privileged=false`, `CapAdd` empty, `CapDrop` contains `ALL`, `NetworkMode` not `host`, `PidMode`/`IpcMode`/`UTSMode`/`UsernsMode` not `host`, `Devices` empty, `Binds`/`Mounts` only under the app data dir, tmpfs, or anonymous (64-hex-named) volumes from an image's `VOLUME` instruction, `Memory` and `PidsLimit` set, `Runtime` is the daemon default, `SecurityOpt` contains `no-new-privileges:true`, `PortBindings` exactly match the rendered ports (host IP and port), owner labels match. Containers that already existed before this `up` (left behind when `up` fails early) get every check except the exact match of labels and ports against the new render; they were checked against their own render when deployed. On any mismatch: `compose down`, audit `critical`, return error.
+3. **Runtime inspect** (`dockerx`) — after `compose up`, for each container of the project: `Privileged=false`, `CapAdd` empty, `CapDrop` contains `ALL`, `NetworkMode` not `host`, `PidMode`/`IpcMode`/`UTSMode`/`UsernsMode` not `host`, `Devices` empty, `Binds`/`Mounts` only under the app data dir, tmpfs, or anonymous (64-hex-named) volumes from an image's `VOLUME` instruction, `Memory` and `PidsLimit` set, `Runtime` is runc (`runc` or `io.containerd.runc.v2`) or listed in `EXTRA_RUNTIMES` (nvidia runtimes are never allowed; startup refuses a daemon whose default runtime is not allowed), `SecurityOpt` contains `no-new-privileges:true`, `PortBindings` exactly match the rendered ports (host IP and port), owner labels match. Containers that already existed before this `up` (left behind when `up` fails early) get every check except the exact match of labels and ports against the new render; they were checked against their own render when deployed. On any mismatch: `compose down`, audit `critical`, return error.
 
 ## 11. Runner
 
@@ -367,6 +367,7 @@ Audit params redact environment **values** (`***`); keys are kept. Params are st
 | `DEPLOY_TIMEOUT` | `300s` | |
 | `DEPLOY_CONCURRENCY` | `1` | env only |
 | `FILE_OWNER` | empty | optional numeric `uid:gid`; group `gid` gets read access to gateway-managed folders and compose files (owner stays root) |
+| `EXTRA_RUNTIMES` | empty | comma-separated hardened container runtimes allowed besides runc (e.g. `runsc`); nvidia runtimes are rejected |
 
 ## 17. Deployment
 

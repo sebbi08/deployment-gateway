@@ -383,7 +383,8 @@ func (s *Service) runtimeCheck(ctx context.Context, ws, app string, pl *planned,
 		}
 		v = append(v, dockerx.CheckRuntime(facts, dockerx.RuntimePolicy{Workspace: ws, App: app, DataDir: pl.policy.DataDir, Ports: ports,
 			Labels: pl.out.Labels[svc], ReservedPrefixes: pl.runtimePrefixes,
-			PreExisting: !c.Created.IsZero() && c.Created.Before(upStarted.Add(-time.Second))})...)
+			PreExisting:   !c.Created.IsZero() && c.Created.Before(upStarted.Add(-time.Second)),
+			ExtraRuntimes: s.ExtraRuntimes})...)
 	}
 	return v
 }

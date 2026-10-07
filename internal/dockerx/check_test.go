@@ -150,3 +150,30 @@ func TestCheckRuntimePreExistingSkipsOnlyRenderMatch(t *testing.T) {
 		t.Fatalf("new container must be matched against the render: %v", v)
 	}
 }
+
+func TestCheckRuntimeAllowedRuntimes(t *testing.T) {
+	for _, tc := range []struct {
+		runtime string
+		extra   []string
+		ok      bool
+	}{
+		{"", nil, true},
+		{"runc", nil, true},
+		{"io.containerd.runc.v2", nil, true},
+		{"runsc", nil, false},
+		{"runsc", []string{"runsc"}, true},
+		{"nvidia", nil, false},
+	} {
+		f := goodFacts()
+		f.Runtime = tc.runtime
+		p := policy()
+		p.ExtraRuntimes = tc.extra
+		v := CheckRuntime(f, p)
+		if ok := len(v) == 0; ok != tc.ok {
+			t.Errorf("runtime %q extra %v: violations %v, want ok=%v", tc.runtime, tc.extra, v, tc.ok)
+		}
+	}
+	if !RuntimeAllowed("io.containerd.runc.v2", nil) || RuntimeAllowed("nvidia", []string{"nvidia"}) {
+		t.Fatal("RuntimeAllowed")
+	}
+}

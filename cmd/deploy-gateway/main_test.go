@@ -202,3 +202,25 @@ func TestAgentWriteTimeoutCoversDeployBudget(t *testing.T) {
 		}
 	}
 }
+
+type fakeRuntime string
+
+func (f fakeRuntime) DefaultRuntime(context.Context) (string, error) { return string(f), nil }
+
+// Every container gets the daemon's default runtime; refuse to start when
+// the runtime check would reject all of them or when it is not allowed.
+func TestCheckDefaultRuntime(t *testing.T) {
+	ctx := context.Background()
+	if err := checkDefaultRuntime(ctx, fakeRuntime("runc"), nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkDefaultRuntime(ctx, fakeRuntime("runsc"), nil); err == nil || !strings.Contains(err.Error(), "EXTRA_RUNTIMES") {
+		t.Fatalf("runsc without EXTRA_RUNTIMES: %v", err)
+	}
+	if err := checkDefaultRuntime(ctx, fakeRuntime("runsc"), []string{"runsc"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkDefaultRuntime(ctx, fakeRuntime("nvidia"), nil); err == nil {
+		t.Fatal("nvidia default runtime must be refused")
+	}
+}

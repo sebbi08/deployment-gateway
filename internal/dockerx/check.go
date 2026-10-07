@@ -66,6 +66,21 @@ type RuntimePolicy struct {
 	// was checked against its own render when it was deployed): the exact
 	// label and port match against the new render is skipped for it.
 	PreExisting bool
+	// ExtraRuntimes are runtimes the operator allowed besides runc.
+	ExtraRuntimes []string
+}
+
+// baseRuntimes are always allowed: runc under its plain and shim names.
+var baseRuntimes = []string{"runc", "io.containerd.runc.v2"}
+
+// RuntimeAllowed reports whether a container may run with runtime. Runtimes
+// whose name contains "nvidia" are never allowed: their hooks act on
+// container environment and have allowed escapes (e.g. CVE-2024-0132).
+func RuntimeAllowed(runtime string, extra []string) bool {
+	if strings.Contains(strings.ToLower(runtime), "nvidia") {
+		return false
+	}
+	return slices.Contains(baseRuntimes, runtime) || slices.Contains(extra, runtime)
 }
 
 // Anonymous volumes (from an image's VOLUME instruction) have random 64-hex
@@ -107,7 +122,7 @@ func CheckRuntime(f Facts, p RuntimePolicy) []string {
 			add("%s mode %q", m.name, m.mode)
 		}
 	}
-	if f.Runtime != "" && f.Runtime != "runc" {
+	if f.Runtime != "" && !RuntimeAllowed(f.Runtime, p.ExtraRuntimes) {
 		add("runtime %q", f.Runtime)
 	}
 	if f.Devices > 0 {

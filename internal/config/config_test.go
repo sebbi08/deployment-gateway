@@ -119,3 +119,17 @@ var validHash = func() string {
 	}
 	return h
 }()
+
+func TestLoadExtraRuntimes(t *testing.T) {
+	base := map[string]string{"WORKSPACES_ROOT": "/srv/dg/workspaces", "ADMIN_PASSWORD_HASH": validHash, "EXTRA_RUNTIMES": "runsc, kata"}
+	c, err := Load(env(base))
+	if err != nil || len(c.ExtraRuntimes) != 2 || c.ExtraRuntimes[0] != "runsc" || c.ExtraRuntimes[1] != "kata" {
+		t.Fatalf("EXTRA_RUNTIMES: %+v %v", c.ExtraRuntimes, err)
+	}
+	for _, bad := range []string{"nvidia", "nvidia-container-runtime", "bad name"} {
+		base["EXTRA_RUNTIMES"] = bad
+		if _, err := Load(env(base)); err == nil || !strings.Contains(err.Error(), "EXTRA_RUNTIMES") {
+			t.Errorf("EXTRA_RUNTIMES=%q accepted: %v", bad, err)
+		}
+	}
+}

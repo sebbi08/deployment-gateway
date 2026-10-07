@@ -376,3 +376,23 @@ func TestFailureLogsIncludeStartingContainers(t *testing.T) {
 		t.Fatalf("failure message lacks the starting container's logs: %v", err)
 	}
 }
+
+func TestDeployHonoursExtraRuntimes(t *testing.T) {
+	for _, tc := range []struct {
+		extra []string
+		want  string
+	}{{nil, service.CodeSecurity}, {[]string{"runsc"}, ""}} {
+		h := newHarness(t)
+		h.svc.ExtraRuntimes = tc.extra
+		p := h.workspace("alice", 20000, 20099)
+		h.compose.AfterUp = func() {
+			for _, c := range []string{"alice-shop-web", "alice-shop-db"} {
+				h.docker.MutateFacts(c, func(f *dockerx.Facts) { f.Runtime = "runsc" })
+			}
+		}
+		_, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, exampleStack)})
+		if code(err) != tc.want {
+			t.Errorf("extra %v: got %v, want code %q", tc.extra, err, tc.want)
+		}
+	}
+}

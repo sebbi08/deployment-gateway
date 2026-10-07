@@ -68,7 +68,7 @@ func (s *Service) preExistingViolations(ctx context.Context, ws, app string) []s
 			continue
 		}
 		v = append(v, dockerx.CheckRuntime(facts, dockerx.RuntimePolicy{Workspace: ws, App: app,
-			DataDir: s.dataDir(ws, app), PreExisting: true})...)
+			DataDir: s.dataDir(ws, app), PreExisting: true, ExtraRuntimes: s.ExtraRuntimes})...)
 	}
 	return v
 }

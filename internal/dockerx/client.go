@@ -264,3 +264,12 @@ func (c *Client) RemoveAppNetwork(ctx context.Context, name, project string) err
 	}
 	return err
 }
+
+// DefaultRuntime returns the daemon's default container runtime.
+func (c *Client) DefaultRuntime(ctx context.Context) (string, error) {
+	res, err := c.api.Info(ctx, client.InfoOptions{})
+	if err != nil {
+		return "", err
+	}
+	return res.Info.DefaultRuntime, nil
+}
