@@ -49,3 +49,31 @@ func TestUpdateWorkspaceHoldsWorkspaceMutex(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// Port-range overlap and template suffix checks compare with other rows and
+// then write; concurrent admin requests must be serialised.
+func TestAdminUniquenessChecksAreSerialised(t *testing.T) {
+	st, err := store.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	s := New(st, nil, nil, t.TempDir())
+	s.Chown = func(string, int, int) error { return nil }
+	ctx := context.Background()
+	s.adminMu.Lock()
+	done := make(chan error, 1)
+	go func() {
+		_, err := s.CreateWorkspace(ctx, "admin", "alice", store.BuiltinDefaultQuota(), PortSettings{Start: 20000, End: 20099, BindIP: "0.0.0.0"})
+		done <- err
+	}()
+	select {
+	case <-done:
+		t.Fatal("CreateWorkspace ran while the admin mutex was held")
+	case <-time.After(100 * time.Millisecond):
+	}
+	s.adminMu.Unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}

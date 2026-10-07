@@ -50,6 +50,8 @@ func (s *Service) validatePortSettings(ctx context.Context, ps *PortSettings, ex
 
 func (s *Service) CreateWorkspace(ctx context.Context, actor, name string, q store.Quota, ps PortSettings) (w store.Workspace, err error) {
 	defer s.adminTrack(ctx, actor, name, "create_workspace", map[string]any{"quota": q, "ports": ps}, &err, time.Now())
+	s.adminMu.Lock()
+	defer s.adminMu.Unlock()
 	if !names.ValidWorkspace(name) {
 		return w, validationError("name", "workspace name must match ^[a-z][a-z0-9]{1,15}$")
 	}
@@ -76,6 +78,8 @@ func (s *Service) CreateWorkspace(ctx context.Context, actor, name string, q sto
 // validation, hostname-uniqueness validation and a Docker network check.
 func (s *Service) SaveTemplate(ctx context.Context, actor string, id int64, t tmpl.Template) (newID int64, err error) {
 	defer s.adminTrack(ctx, actor, "", "save_template", t, &err, time.Now())
+	s.adminMu.Lock()
+	defer s.adminMu.Unlock()
 	all, err := s.Store.ListTemplates(ctx)
 	if err != nil {
 		return 0, err
@@ -126,6 +130,8 @@ func (s *Service) SetGrants(ctx context.Context, actor string, w store.Workspace
 
 func (s *Service) UpdateWorkspace(ctx context.Context, actor string, w store.Workspace) (err error) {
 	defer s.adminTrack(ctx, actor, w.Name, "update_workspace", w, &err, time.Now())
+	s.adminMu.Lock()
+	defer s.adminMu.Unlock()
 	// Deploys commit port claims under the same mutex; without it a claim
 	// could land between the check below and the write.
 	mu := s.wsMutex(w.Name)

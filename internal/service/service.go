@@ -61,6 +61,10 @@ type Service struct {
 	Logger    *slog.Logger
 
 	wsLocks sync.Map // workspace name -> *sync.Mutex
+	// adminMu serialises admin changes whose uniqueness checks compare with
+	// other rows (port ranges across workspaces, template suffixes). It is
+	// always taken before a workspace mutex.
+	adminMu sync.Mutex
 	disk    *diskCache
 }
 
