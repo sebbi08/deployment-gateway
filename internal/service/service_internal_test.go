@@ -77,3 +77,21 @@ func TestAdminUniquenessChecksAreSerialised(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestWriteAndCopyFileSync(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	if err := writeFileSync(a, []byte("services: {}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFileSync(a, b, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{a, b} {
+		got, err := os.ReadFile(p)
+		fi, _ := os.Stat(p)
+		if err != nil || string(got) != "services: {}\n" || fi.Mode().Perm() != 0o640 {
+			t.Fatalf("%s: %q %v %v", p, got, fi.Mode().Perm(), err)
+		}
+	}
+}

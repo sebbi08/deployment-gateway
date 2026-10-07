@@ -241,7 +241,7 @@ func (s *Service) nextFile(ws, app string) string {
 
 func (s *Service) writeNext(ws, app string, pl *planned) error {
 	next := s.nextFile(ws, app)
-	if err := os.WriteFile(next, pl.out.YAML, 0o640); err != nil {
+	if err := writeFileSync(next, pl.out.YAML, 0o640); err != nil {
 		return err
 	}
 	if err := s.own(next); err != nil {
@@ -291,19 +291,28 @@ func (s *Service) prepare(ctx context.Context, p Principal, app string, st *stac
 	if err := s.Store.RecordDeploy(context.WithoutCancel(ctx), appRec.ID, "pending"); err != nil {
 		return store.App{}, nil, nil, err
 	}
-	cur := s.composeFile(ws.Name, app)
+	// The current file never disappears: prev is a durable copy, and next
+	// replaces cur with a single atomic rename.
+	cur, prevFile := s.composeFile(ws.Name, app), s.prevFile(ws.Name, app)
 	if lastOK {
 		if _, err := os.Stat(cur); err == nil {
-			if err := os.Rename(cur, s.prevFile(ws.Name, app)); err != nil {
+			tmp := prevFile + ".tmp"
+			if err := copyFileSync(cur, tmp, 0o640); err != nil {
+				return store.App{}, nil, nil, err
+			}
+			if err := os.Rename(tmp, prevFile); err != nil {
 				return store.App{}, nil, nil, err
 			}
 			// prev may predate FILE_OWNER.
-			if err := s.own(s.prevFile(ws.Name, app)); err != nil {
+			if err := s.own(prevFile); err != nil {
 				return store.App{}, nil, nil, err
 			}
 		}
 	}
 	if err := os.Rename(next, cur); err != nil {
+		return store.App{}, nil, nil, err
+	}
+	if err := syncDir(s.appDir(ws.Name, app)); err != nil {
 		return store.App{}, nil, nil, err
 	}
 	return appRec, pl, prevApp, nil

@@ -104,8 +104,10 @@ func (s *Service) deleteApp(ctx context.Context, ws store.Workspace, app string)
 	vols := s.appVolumes(ctx, ws.Name, app)
 	file := s.composeFile(ws.Name, app)
 	if _, statErr := os.Stat(file); statErr == nil {
+		// Not fatal: an empty file after a crash or a busy compose slot must
+		// not block a delete; the containers are removed by label below.
 		if out, err := s.Compose.Down(ctx, file, names.Project(ws.Name, app)); err != nil {
-			return &Error{Code: CodeDeployFailed, Message: err.Error() + "\n" + s.sanitize(ws.Name, out), detail: out}
+			s.Logger.Warn("compose down failed during delete; removing containers directly", "workspace", ws.Name, "app", app, "err", err, "output", out)
 		}
 	}
 	leftovers, err := s.Docker.ProjectContainers(ctx, ws.Name, app)

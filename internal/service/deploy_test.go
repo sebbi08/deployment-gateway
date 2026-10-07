@@ -342,14 +342,21 @@ func TestDeployViolationReportsRemovalWhenComposeDownIsBusy(t *testing.T) {
 	}
 }
 
-func TestDeleteReportsBusyComposeSlot(t *testing.T) {
+// compose down can fail (empty compose file after a crash, busy compose
+// slot); delete must still remove the app, removing its containers by label.
+func TestDeleteSucceedsWhenComposeDownFails(t *testing.T) {
 	h := newHarness(t)
 	p := h.workspace("alice", 20000, 20099)
 	deployExample(t, h, p)
 	h.compose.DownErr = errors.New("compose down: the gateway is busy with other operations; retry later")
-	_, err := h.svc.Delete(h.ctx, p, service.DeleteInput{App: "shop", Confirm: "shop"})
-	if err == nil || !strings.Contains(err.Error(), "retry later") {
-		t.Fatalf("delete error must explain the busy slot: %v", err)
+	if _, err := h.svc.Delete(h.ctx, p, service.DeleteInput{App: "shop", Confirm: "shop"}); err != nil {
+		t.Fatalf("delete with failing compose down: %v", err)
+	}
+	if len(h.docker.Containers) != 0 {
+		t.Fatalf("%d containers left", len(h.docker.Containers))
+	}
+	if _, err := h.st.GetApp(h.ctx, p.Workspace.ID, "shop"); err == nil {
+		t.Fatal("app record left")
 	}
 }
 
