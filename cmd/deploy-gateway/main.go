@@ -185,7 +185,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		TrustedProxies: cfg.AdminTrustedProxies, ForwardedProxies: cfg.TrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
 	servers := []*http.Server{
 		{Addr: cfg.AgentListen, Handler: agentHandler(svc, authn, dc), ReadHeaderTimeout: 10 * time.Second,
-			WriteTimeout: cfg.DeployTimeout + 2*time.Minute, IdleTimeout: 2 * time.Minute},
+			WriteTimeout: agentWriteTimeout(cfg.DeployTimeout), IdleTimeout: 2 * time.Minute},
 		{Addr: cfg.AdminListen, Handler: adminSrv.Handler(), ReadHeaderTimeout: 10 * time.Second,
 			WriteTimeout: cfg.DeployTimeout + 2*time.Minute, IdleTimeout: 2 * time.Minute},
 	}
@@ -216,6 +216,13 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		srv.Shutdown(shutdownCtx)
 	}
 	return nil
+}
+
+// agentWriteTimeout covers the longest deploy: pull, up and a security
+// teardown, each waiting up to DEPLOY_TIMEOUT for the compose slot and
+// running up to DEPLOY_TIMEOUT+30s, plus a margin for bookkeeping.
+func agentWriteTimeout(deploy time.Duration) time.Duration {
+	return 3*(2*deploy+30*time.Second) + 2*time.Minute
 }
 
 // Per-token limits: at most 8 concurrent calls (a deploy holds its slot until

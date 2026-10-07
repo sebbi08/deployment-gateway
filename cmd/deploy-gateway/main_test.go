@@ -190,3 +190,15 @@ func TestWarnDefaultAddressPools(t *testing.T) {
 		t.Fatalf("configured pools must not warn, got %q", out)
 	}
 }
+
+// A deploy can wait for the compose slot and then run up to three compose
+// operations (pull, up, teardown), each bounded by DEPLOY_TIMEOUT+30s with a
+// wait of up to DEPLOY_TIMEOUT; the response must still reach the agent.
+func TestAgentWriteTimeoutCoversDeployBudget(t *testing.T) {
+	for _, d := range []time.Duration{30 * time.Second, 300 * time.Second} {
+		budget := 3 * (d + d + 30*time.Second)
+		if got := agentWriteTimeout(d); got <= budget {
+			t.Errorf("DEPLOY_TIMEOUT %v: write timeout %v, want more than %v", d, got, budget)
+		}
+	}
+}
