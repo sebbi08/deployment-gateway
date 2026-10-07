@@ -274,7 +274,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: covered by TestVerifyValidTokenPassesFromBlockedIP and TestVerifyLogsFailuresAndBlockOnce (H1).
 - [x] **T11** No test fails when proxy mode accepts a forged identity header from an untrusted peer — [internal/admin/server.go:114](../../../internal/admin/server.go#L114)
   - Done: TestProxyModeRejectsIdentityHeaderFromUntrustedPeer: forged header from 10.0.0.2 gets 403 (mutant returned 200).
-- [ ] **T12** No test fails when admin session IDs become constant or 16-bit — [internal/auth/sessions.go:30](../../../internal/auth/sessions.go#L30)
+- [x] **T12** No test fails when admin session IDs become constant or 16-bit — [internal/auth/sessions.go:30](../../../internal/auth/sessions.go#L30)
+  - Done: TestSessionIDsAreUniqueAndLong kills both the 16-bit and the constant-ID mutant.
 - [ ] **T13** No test fails when the token hash covers only the displayed 12-char prefix — [internal/auth/token.go:26](../../../internal/auth/token.go#L26)
 - [ ] **T14** No test fails when the admin body limit (public login endpoint) is removed — [internal/admin/server.go:260](../../../internal/admin/server.go#L260)
 - [ ] **T15** No test fails when the agent JSON API body limit is lifted — [internal/api/api.go:82](../../../internal/api/api.go#L82)
