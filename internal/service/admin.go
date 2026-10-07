@@ -254,6 +254,9 @@ func (s *Service) RevokeToken(ctx context.Context, actor string, w store.Workspa
 	if err != nil {
 		return err
 	}
+	if t.RevokedAt != nil {
+		return nil // already revoked: a double click or a stale view
+	}
 	return s.Store.RevokeToken(ctx, id)
 }
 

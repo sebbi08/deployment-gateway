@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Route, Routes } from "react-router";
 import { mockApi, quota, renderWithProviders } from "../test/utils";
@@ -96,4 +96,18 @@ test("a failed refetch keeps the new token visible", async () => {
   expect(await screen.findByText("dgw_onlyshownonce")).toBeInTheDocument();
   await screen.findByText(/docker down/);
   expect(screen.getByText("dgw_onlyshownonce")).toBeInTheDocument();
+});
+
+test("a double click on Revoke sends one request", async () => {
+  const withToken: Detail = { ...detail, tokens: [{ id: 3, label: "ci", prefix: "dgw_abcd", created_at: "2026-10-01T10:00:00Z", last_used_at: null, revoked_at: null }] };
+  const calls = mockApi({
+    "GET /workspaces/alice": { body: withToken },
+    "POST /workspaces/alice/tokens/3/revoke": { status: 204 },
+  });
+  renderDetail();
+  await userEvent.click(await screen.findByRole("tab", { name: "Tokens" }));
+  await userEvent.dblClick(await screen.findByRole("button", { name: "Revoke" }));
+  await waitFor(() => expect(calls.filter((c) => c.method === "POST" && c.path.endsWith("/revoke"))).toHaveLength(1));
+  await new Promise((r) => setTimeout(r, 100));
+  expect(calls.filter((c) => c.method === "POST" && c.path.endsWith("/revoke"))).toHaveLength(1);
 });

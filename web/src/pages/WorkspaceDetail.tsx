@@ -3,7 +3,7 @@ import {
 } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 import { api } from "../api";
 import { ConfirmDelete } from "../components/ConfirmDelete";
@@ -132,7 +132,13 @@ function TokensTab({ ws }: { ws: Detail }) {
       invalidate();
     },
   });
-  const revoke = useMutation({ mutationFn: (id: number) => api.revokeToken(ws.name, id), onSuccess: invalidate });
+  // A ref, not isPending: a fast double click fires before React re-renders.
+  const revoking = useRef(new Set<number>());
+  const revoke = useMutation({
+    mutationFn: (id: number) => api.revokeToken(ws.name, id),
+    onSuccess: invalidate, // the refetched row then shows "revoked"
+    onError: (_err, id) => revoking.current.delete(id),
+  });
   return (
     <Stack>
       <ErrorAlert error={create.error ?? revoke.error} />
@@ -160,7 +166,17 @@ function TokensTab({ ws }: { ws: Detail }) {
                   {t.revoked_at ? (
                     <Badge color="gray">revoked</Badge>
                   ) : (
-                    <Button size="xs" color="red" variant="light" onClick={() => revoke.mutate(t.id)}>
+                    <Button
+                      size="xs"
+                      color="red"
+                      variant="light"
+                      loading={revoke.isPending && revoke.variables === t.id}
+                      onClick={() => {
+                        if (revoking.current.has(t.id)) return;
+                        revoking.current.add(t.id);
+                        revoke.mutate(t.id);
+                      }}
+                    >
                       Revoke
                     </Button>
                   )}

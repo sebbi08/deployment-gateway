@@ -294,3 +294,14 @@ func TestSetGrantsValidatesTemplateIDs(t *testing.T) {
 		t.Fatalf("unknown template ID: %v", err)
 	}
 }
+
+// Revoking an already revoked token (double click, stale view) succeeds.
+func TestRevokeTokenIsIdempotent(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	for i := range 2 {
+		if err := h.svc.RevokeToken(h.ctx, "admin", p.Workspace, p.TokenID); err != nil {
+			t.Fatalf("revoke #%d: %v", i+1, err)
+		}
+	}
+}
