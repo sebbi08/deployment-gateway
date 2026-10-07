@@ -26,6 +26,9 @@ type Options struct {
 	QueueTimeout time.Duration
 }
 
+// ErrShuttingDown is returned for operations started after Shutdown.
+var ErrShuttingDown = errors.New("the gateway is shutting down; retry later")
+
 // ErrBusy is returned when no compose slot became free within QueueTimeout.
 var ErrBusy = errors.New("the gateway is busy with other operations; retry later")
 
@@ -37,6 +40,25 @@ type Runner struct {
 	// wsQueues lets each workspace have at most one operation waiting for
 	// the global slot, so one tenant cannot queue all others behind it.
 	wsQueues map[string]chan struct{}
+
+	running  sync.WaitGroup // compose processes in flight
+	stopping bool           // set by Shutdown, guarded by mu
+}
+
+// Shutdown refuses new compose operations and waits until the running ones
+// have finished (or ctx ends), so a stop does not kill compose half-way.
+func (r *Runner) Shutdown(ctx context.Context) error {
+	r.mu.Lock()
+	r.stopping = true
+	r.mu.Unlock()
+	done := make(chan struct{})
+	go func() { r.running.Wait(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func New(o Options) *Runner {
@@ -146,6 +168,14 @@ func (r *Runner) run(ctx context.Context, file, project string, args ...string) 
 		return "", err
 	}
 	defer release()
+	r.mu.Lock()
+	if r.stopping {
+		r.mu.Unlock()
+		return "", fmt.Errorf("compose %s: %w", args[0], ErrShuttingDown)
+	}
+	r.running.Add(1)
+	r.mu.Unlock()
+	defer r.running.Done()
 
 	ctx, cancel := context.WithTimeout(ctx, r.opts.Timeout+30*time.Second)
 	defer cancel()

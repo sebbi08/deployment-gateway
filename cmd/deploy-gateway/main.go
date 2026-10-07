@@ -190,7 +190,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		{Addr: cfg.AgentListen, Handler: agentHandler(svc, authn, dc), ReadHeaderTimeout: 10 * time.Second,
 			WriteTimeout: agentWriteTimeout(cfg.DeployTimeout), IdleTimeout: 2 * time.Minute},
 		{Addr: cfg.AdminListen, Handler: adminSrv.Handler(), ReadHeaderTimeout: 10 * time.Second,
-			WriteTimeout: cfg.DeployTimeout + 2*time.Minute, IdleTimeout: 2 * time.Minute},
+			WriteTimeout: agentWriteTimeout(cfg.DeployTimeout), IdleTimeout: 2 * time.Minute},
 	}
 	go pruneAudit(ctx, st, logger)
 
@@ -217,6 +217,13 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	defer cancel()
 	for _, srv := range servers {
 		srv.Shutdown(shutdownCtx)
+	}
+	// Let running compose operations finish; a killed compose leaves
+	// half-replaced containers behind.
+	runCtx, cancelRun := context.WithTimeout(context.Background(), cfg.DeployTimeout+time.Minute)
+	defer cancelRun()
+	if err := run.Shutdown(runCtx); err != nil {
+		logger.Warn("compose operations still running at exit", "err", err)
 	}
 	return nil
 }

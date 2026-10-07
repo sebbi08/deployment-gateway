@@ -5,6 +5,8 @@ services:
     image: ghcr.io/sebbi08/deployment-gateway:${GATEWAY_VERSION:?set GATEWAY_VERSION in .env}
     container_name: deploy-gateway
     restart: unless-stopped
+    # The gateway waits for running compose operations on stop; keep this above DEPLOY_TIMEOUT + 30s.
+    stop_grace_period: ${GATEWAY_STOP_GRACE:-6m}
     env_file: .env
     environment:
       # Must be the identical absolute path on the host and in the container.

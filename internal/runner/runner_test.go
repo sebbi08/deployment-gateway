@@ -173,3 +173,26 @@ func TestRunnerQueueWaitIsBounded(t *testing.T) {
 		t.Fatalf("waited %v, want about 200ms", d)
 	}
 }
+
+// Shutdown must not kill a compose operation half-way: it refuses new
+// operations and waits for running ones.
+func TestShutdownWaitsForRunningOperations(t *testing.T) {
+	bin, _ := fakeCompose(t, "sleep 0.5")
+	r := New(Options{Bin: bin, Timeout: time.Minute, Concurrency: 1})
+	done := make(chan error, 1)
+	go func() { _, err := r.Stop(context.Background(), "/nonexistent/x.yml", "dg-alice-a1", ""); done <- err }()
+	time.Sleep(100 * time.Millisecond)
+	begin := time.Now()
+	if err := r.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(begin) < 300*time.Millisecond {
+		t.Fatal("Shutdown returned while an operation was still running")
+	}
+	if err := <-done; err != nil {
+		t.Fatalf("running operation failed: %v", err)
+	}
+	if _, err := r.Stop(context.Background(), "/nonexistent/x.yml", "dg-alice-a1", ""); !errors.Is(err, ErrShuttingDown) {
+		t.Fatalf("new operation after Shutdown: %v", err)
+	}
+}
