@@ -264,7 +264,8 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
   - Done: Options.Grace (default 30s) makes the kill grace configurable; TestRunnerTimeoutStopsHangingCompose uses a detached ctx and a sleeping fake compose.
 - [x] **T6** No test fails when workspace total memory/CPU quotas stop counting other apps — [internal/service/plan.go:90](../../../internal/service/plan.go#L90)
   - Done: TestDeployTotalQuotasCountOtherApps kills both mutants (memory and cpu sums) and pins that a redeploy excludes its own resources.
-- [ ] **T7** No test fails when prepare stops holding the workspace mutex (quota race) — [internal/service/deploy.go:126](../../../internal/service/deploy.go#L126)
+- [x] **T7** No test fails when prepare stops holding the workspace mutex (quota race) — [internal/service/deploy.go:126](../../../internal/service/deploy.go#L126)
+  - Done: TestPrepareHoldsWorkspaceMutex (internal) fails when prepare drops the lock.
 - [ ] **T8** No test fails when ListPortClaims is not scoped to the workspace (cross-tenant leak via whoami) — [internal/store/apps.go:174](../../../internal/store/apps.go#L174)
 - [ ] **T9** No test fails when ListApps is not scoped to the workspace (agent list shows other tenants' apps) — [internal/store/apps.go:67](../../../internal/store/apps.go#L67)
 - [x] **T10** Default TRUSTED_PROXIES + blocking valid tokens: 10 anonymous requests lock out every agent — [internal/agentauth/agentauth.go:31](../../../internal/agentauth/agentauth.go#L31)
