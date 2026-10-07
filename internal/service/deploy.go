@@ -324,10 +324,16 @@ func (s *Service) prepareDirs(ws, app string, st *stack.Stack) error {
 			continue
 		}
 		dir := filepath.Join(data, name)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		// A root container can create setuid-root files here despite
+		// cap_drop ALL, so a root-owned folder is closed to everyone else.
+		mode := os.FileMode(0o755)
+		if uid, _, _ := strings.Cut(svc.User, ":"); uid == "" || strings.Trim(uid, "0") == "" {
+			mode = 0o700
+		}
+		if err := os.MkdirAll(dir, mode); err != nil {
 			return err
 		}
-		if err := os.Chmod(dir, 0o755); err != nil {
+		if err := os.Chmod(dir, mode); err != nil {
 			return err
 		}
 		if svc.User != "" {

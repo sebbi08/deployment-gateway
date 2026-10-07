@@ -89,11 +89,12 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 - [x] **P2** (F35, plausible) FILE_OWNER owns gateway-managed dirs and compose files, so that host uid becomes root-equivalent — [internal/service/deploy.go:194](../../../internal/service/deploy.go#L194)
   - Fix: Keep everything on the bind-path chain and every file compose runs owned by root: the app dir, data/, docker-compose\*.yml. Give FILE_OWNER read access through its group only (root:<gid>, 0750 dirs, 0640 files). Otherwise use os.Lchown, open with O_NOFOLLOW / openat2 RESOLVE_BENEATH|NO_SYMLINKS, and Lstat-reject symlinks before rename and chown. Also document that a FILE_OWNER uid with write access is root-equivalent.
   - Done: FILE_OWNER now only grants group read access (root:<gid>, dirs 0750, files 0640); chown never follows symlinks (os.Lchown). README, .env.example, spec §6/§16 updated; startup logs the effect.
-- [ ] **P3** (F07, plausible) Root containers can plant setuid-root binaries on the host in data/<svc>; no nosuid/nodev guidance — [internal/service/deploy.go:206](../../../internal/service/deploy.go#L206)
+- [x] **P3** (F07, plausible) Root containers can plant setuid-root binaries on the host in data/<svc>; no nosuid/nodev guidance — [internal/service/deploy.go:206](../../../internal/service/deploy.go#L206)
   - Fix: Create root-owned data/<svc> (`user` unset or uid 0) with mode 0700 instead of 0755, so FILE_OWNER and other host users cannot reach files planted inside. Document in the README and spec §6 that WORKSPACES_ROOT should be mounted nosuid,nodev, and that FILE_OWNER gains access to agent-written data. Optionally warn at startup if statfs(WORKSPACES_ROOT) lacks ST_NOSUID.
 
 ## Low
 
+  - Done: root-owned data/<svc> (no user or uid 0) is created 0700; README/spec recommend nosuid,nodev for WORKSPACES_ROOT.
 - [ ] **LO1** (F15, confirmed) Rejected agent calls (401, rate-limited, decode/schema errors) are neither audited nor logged — [internal/agentauth/agentauth.go:57](../../../internal/agentauth/agentauth.go#L57)
   - Fix: Give Authenticator a Logger. Log a warning for unknown tokens and when an IP becomes blocked, with client_ip and the token's display prefix, never the token itself. Log internal errors at error level. For authenticated calls rejected before the service, write an agent audit row (result validation_failed, raw body size-capped with env values redacted): in api.go before the 400, and on MCP by taking json.RawMessage …
 - [ ] **LO2** (F16, confirmed) MCP auth returns raw internal error text (e.g. SQLite errors) to unauthenticated clients — [internal/agentauth/agentauth.go:86](../../../internal/agentauth/agentauth.go#L86)

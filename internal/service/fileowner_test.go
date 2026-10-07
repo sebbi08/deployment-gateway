@@ -1,6 +1,8 @@
 package service_test
 
 import (
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -46,5 +48,30 @@ func TestFileOwnerUnsetChownsNothingExtra(t *testing.T) {
 	deployExample(t, h, p)
 	if !slices.Equal(h.chowns, []string{"db 999:999"}) {
 		t.Fatalf("chowns = %v", h.chowns)
+	}
+}
+
+// A root container can create setuid-root files in its data folder despite
+// cap_drop ALL. Root-owned data folders are therefore closed to every other
+// host user; folders owned by the container's user keep 0755.
+func TestRootOwnedDataFolderIsPrivate(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	st := `{"services": {
+	  "root": {"image": "a:1", "volume": {"path": "/data"}},
+	  "zero": {"image": "a:1", "user": "00:0", "volume": {"path": "/data"}},
+	  "db": {"image": "postgres:16.4", "user": "999:999", "volume": {"path": "/var/lib/postgresql/data"}}
+	}}`
+	if _, err := h.svc.Deploy(h.ctx, p, service.DeployInput{App: "shop", Stack: mustStack(t, st)}); err != nil {
+		t.Fatal(err)
+	}
+	for svc, want := range map[string]os.FileMode{"root": 0o700, "zero": 0o700, "db": 0o755} {
+		fi, err := os.Stat(filepath.Join(h.root, "alice", "shop", "data", svc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := fi.Mode().Perm(); got != want {
+			t.Errorf("data/%s mode %o, want %o", svc, got, want)
+		}
 	}
 }
