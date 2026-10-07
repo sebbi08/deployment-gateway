@@ -79,15 +79,25 @@ jobs:
       - uses: docker/setup-buildx-action@v4
 
       - name: Refuse to overwrite an existing release
+        # Fail closed: only a clear "not found" counts as absent; any other
+        # registry or git error stops the release.
         run: |
-          if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+          if out=$(docker buildx imagetools inspect "$IMAGE:$VERSION" 2>&1); then
             echo "::error::$IMAGE:$VERSION already exists"
             exit 1
-          fi
-          if git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null; then
-            echo "::error::git tag v$VERSION already exists"
+          elif ! grep -qi "not found" <<<"$out"; then
+            echo "::error::cannot check whether $IMAGE:$VERSION exists: $out"
             exit 1
           fi
+          set +e
+          git ls-remote --exit-code --tags origin "refs/tags/v$VERSION" >/dev/null
+          rc=$?
+          set -e
+          case $rc in
+            0) echo "::error::git tag v$VERSION already exists"; exit 1 ;;
+            2) ;; # no such tag
+            *) echo "::error::cannot check the git tags (git ls-remote exit $rc)"; exit 1 ;;
+          esac
 
       - uses: docker/build-push-action@v7
         with:
