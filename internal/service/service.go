@@ -36,6 +36,9 @@ type Docker interface {
 	NetworkExists(ctx context.Context, name string) (bool, error)
 	RemoveContainer(ctx context.Context, id string) error
 	RemoveVolume(ctx context.Context, name string) error
+	// RemoveAppNetwork removes the app network name if it belongs to the
+	// compose project and no container is attached.
+	RemoveAppNetwork(ctx context.Context, name, project string) error
 }
 
 // Principal is the authenticated caller. Workspace comes from the token

@@ -6,6 +6,7 @@ import (
 	"slices"
 
 	"github.com/sebbi08/deployment-gateway/internal/dockerx"
+	"github.com/sebbi08/deployment-gateway/internal/names"
 )
 
 // Anonymous volumes come from an image's VOLUME instruction. compose
@@ -53,5 +54,13 @@ func (s *Service) removeVolumes(ctx context.Context, vols, keep map[string]bool)
 		if err := s.Docker.RemoveVolume(ctx, v); err != nil {
 			s.Logger.Warn("removing anonymous volume failed", "volume", v, "err", err)
 		}
+	}
+}
+
+// removeAppNetwork removes the app's private network after its containers
+// are gone; Docker keeps it (and its address pool) otherwise.
+func (s *Service) removeAppNetwork(ctx context.Context, ws, app string) {
+	if err := s.Docker.RemoveAppNetwork(ctx, names.Network(ws, app), names.Project(ws, app)); err != nil {
+		s.Logger.Warn("removing app network failed", "workspace", ws, "app", app, "err", err)
 	}
 }

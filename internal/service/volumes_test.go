@@ -1,6 +1,7 @@
 package service_test
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -74,4 +75,37 @@ func mustApp(t *testing.T, h *harness, p service.Principal, name string) int64 {
 		t.Fatal(err)
 	}
 	return a.ID
+}
+
+// Networks of removed apps hold one of Docker's limited address pools; the
+// cleanup paths that bypass compose down must remove them too.
+func TestCleanupRemovesAppNetwork(t *testing.T) {
+	t.Run("delete after failing compose down", func(t *testing.T) {
+		h := newHarness(t)
+		p := h.workspace("alice", 20000, 20099)
+		deployExample(t, h, p)
+		h.compose.DownErr = errors.New("compose down failed")
+		if _, err := h.svc.Delete(h.ctx, p, service.DeleteInput{App: "shop", Confirm: "shop"}); err != nil {
+			t.Fatal(err)
+		}
+		if !slices.Contains(h.docker.RemovedNetworks(), "dg-alice-shop") {
+			t.Fatalf("network not removed: %v", h.docker.RemovedNetworks())
+		}
+	})
+	t.Run("orphan removal", func(t *testing.T) {
+		h := newHarness(t)
+		p := h.workspace("alice", 20000, 20099)
+		deployExample(t, h, p)
+		if err := h.st.DeleteApp(h.ctx, mustApp(t, h, p, "shop")); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"alice-shop-web", "alice-shop-db"} {
+			if err := h.svc.RemoveOrphan(h.ctx, "admin", id); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if !slices.Contains(h.docker.RemovedNetworks(), "dg-alice-shop") {
+			t.Fatalf("network not removed: %v", h.docker.RemovedNetworks())
+		}
+	})
 }

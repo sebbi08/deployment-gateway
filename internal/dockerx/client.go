@@ -243,3 +243,24 @@ func (c *Client) AddressPoolsConfigured(ctx context.Context) (bool, error) {
 	}
 	return len(res.Info.DefaultAddressPools) > 0, nil
 }
+
+// RemoveAppNetwork removes an app's private network once no container is
+// attached. Networks of other projects are left alone; a missing network is
+// fine.
+func (c *Client) RemoveAppNetwork(ctx context.Context, name, project string) error {
+	res, err := c.api.NetworkInspect(ctx, name, client.NetworkInspectOptions{})
+	if cerrdefs.IsNotFound(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if res.Network.Labels["com.docker.compose.project"] != project || len(res.Network.Containers) > 0 {
+		return nil
+	}
+	_, err = c.api.NetworkRemove(ctx, name, client.NetworkRemoveOptions{})
+	if cerrdefs.IsNotFound(err) {
+		return nil
+	}
+	return err
+}

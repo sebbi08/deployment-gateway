@@ -119,6 +119,7 @@ func (s *Service) deleteApp(ctx context.Context, ws store.Workspace, app string)
 		}
 	}
 	s.removeVolumes(ctx, vols, nil)
+	s.removeAppNetwork(ctx, ws.Name, app)
 	dir := s.appDir(ws.Name, app)
 	if filepath.Dir(dir) != s.workspaceDir(ws.Name) {
 		return errors.New("refusing to remove unexpected path " + dir)

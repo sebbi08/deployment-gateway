@@ -43,3 +43,30 @@ func TestIntegrationAddressPoolsConfigured(t *testing.T) {
 		t.Fatalf("info: %v", err)
 	}
 }
+
+func TestIntegrationRemoveAppNetwork(t *testing.T) {
+	c, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	mk := func(name, project string) {
+		t.Helper()
+		if out, err := exec.Command("docker", "network", "create", "--label", "com.docker.compose.project="+project, name).CombinedOutput(); err != nil {
+			t.Fatalf("create %s: %v %s", name, err, out)
+		}
+		t.Cleanup(func() { exec.Command("docker", "network", "rm", name).Run() })
+	}
+	exists := func(name string) bool { return exec.Command("docker", "network", "inspect", name).Run() == nil }
+	mk("dgrev-itest-own", "dg-itest-own")
+	mk("dgrev-itest-foreign", "someone-else")
+	if err := c.RemoveAppNetwork(ctx, "dgrev-itest-own", "dg-itest-own"); err != nil || exists("dgrev-itest-own") {
+		t.Fatalf("own network not removed (err %v)", err)
+	}
+	if err := c.RemoveAppNetwork(ctx, "dgrev-itest-foreign", "dg-itest-own"); err != nil || !exists("dgrev-itest-foreign") {
+		t.Fatalf("network of another project touched (err %v)", err)
+	}
+	if err := c.RemoveAppNetwork(ctx, "dgrev-itest-missing", "dg-itest-own"); err != nil {
+		t.Fatalf("missing network: %v", err)
+	}
+}

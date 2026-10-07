@@ -196,8 +196,10 @@ func (s *Service) DeleteWorkspace(ctx context.Context, actor string, w store.Wor
 		return err
 	}
 	ids := make([]string, 0, len(leftovers))
+	leftoverApps := map[string]bool{}
 	for _, c := range leftovers {
 		ids = append(ids, c.ID)
+		leftoverApps[c.Labels[names.LabelApp]] = true
 	}
 	vols := s.anonymousVolumes(ctx, ids)
 	for _, id := range ids {
@@ -206,6 +208,11 @@ func (s *Service) DeleteWorkspace(ctx context.Context, actor string, w store.Wor
 		}
 	}
 	s.removeVolumes(ctx, vols, nil)
+	for app := range leftoverApps {
+		if names.ValidApp(app) {
+			s.removeAppNetwork(ctx, w.Name, app)
+		}
+	}
 	if err = os.RemoveAll(dir); err != nil {
 		return err
 	}
@@ -304,6 +311,10 @@ func (s *Service) RemoveOrphan(ctx context.Context, actor, id string) (err error
 				return err
 			}
 			s.removeVolumes(ctx, vols, nil)
+			// Removed only once the app's last container is gone.
+			if ws, app := o.Labels[names.LabelWorkspace], o.Labels[names.LabelApp]; names.ValidWorkspace(ws) && names.ValidApp(app) {
+				s.removeAppNetwork(ctx, ws, app)
+			}
 			return nil
 		}
 	}
