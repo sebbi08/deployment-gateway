@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"fmt"
 	"net/http/httptest"
 	"net/netip"
 	"strings"
@@ -123,7 +124,7 @@ func TestClientIPUsesAllForwardedForLines(t *testing.T) {
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.1/32")}
 	r := httptest.NewRequest("GET", "/", nil)
 	r.RemoteAddr = "10.0.0.1:1234"
-	r.Header.Add("X-Forwarded-For", "6.6.6.6")      // client-supplied
+	r.Header.Add("X-Forwarded-For", "6.6.6.6")     // client-supplied
 	r.Header.Add("X-Forwarded-For", "203.0.113.9") // appended by the proxy
 	if got := ClientIP(r, trusted); got != "203.0.113.9" {
 		t.Fatalf("two XFF lines: got %s, want the proxy-appended address", got)
@@ -136,5 +137,33 @@ func TestClientIPUsesAllForwardedForLines(t *testing.T) {
 	r.Header.Set("X-Forwarded-For", "[2001:db8::7]:443")
 	if got := ClientIP(r, trusted); got != "2001:db8::7" {
 		t.Fatalf("[v6]:port entry: got %s", got)
+	}
+}
+
+func TestLimiterSweepsExpiredBlocks(t *testing.T) {
+	l := NewLimiter(1, time.Minute, time.Minute)
+	now := time.Unix(1_000_000, 0)
+	l.Now = func() time.Time { return now }
+	for i := range 3000 {
+		l.Fail(fmt.Sprintf("198.51.%d.%d", i/256, i%256))
+	}
+	now = now.Add(2 * time.Minute)
+	l.Fail("203.0.113.1")
+	if n := l.BlockedCount(); n > 1 {
+		t.Fatalf("%d blocks kept after expiry", n)
+	}
+}
+
+// Rotating addresses inside one IPv6 /64 counts as one client.
+func TestLimiterKeysIPv6By64(t *testing.T) {
+	l := NewLimiter(3, time.Minute, time.Minute)
+	for i := range 3 {
+		l.Fail(fmt.Sprintf("2001:db8:1:2::%x", i+1))
+	}
+	if !l.Blocked("2001:db8:1:2::ffff") {
+		t.Fatal("addresses of one /64 must share a block")
+	}
+	if l.Blocked("2001:db8:1:3::1") || l.Blocked("192.0.2.1") {
+		t.Fatal("other prefixes must not be blocked")
 	}
 }
