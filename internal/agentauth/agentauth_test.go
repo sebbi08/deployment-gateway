@@ -3,11 +3,13 @@ package agentauth
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,12 +18,18 @@ import (
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 
 	"github.com/sebbi08/deployment-gateway/internal/auth"
+	"github.com/sebbi08/deployment-gateway/internal/service"
 	"github.com/sebbi08/deployment-gateway/internal/store"
 )
 
 func setup(t *testing.T) (*Authenticator, string) {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
+	return setupAt(t, filepath.Join(t.TempDir(), "a.db"))
+}
+
+func setupAt(t *testing.T, dbPath string) (*Authenticator, string) {
+	t.Helper()
+	st, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,5 +332,85 @@ func TestMCPVerifierMasksInternalErrors(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "agent auth error") {
 		t.Fatalf("internal error not logged: %q", buf.String())
+	}
+}
+
+// The client IP of a principal comes from X-Forwarded-For only when the
+// peer is a trusted proxy; anyone else's header is ignored.
+func TestClientIPHonoursTrustedProxiesOnly(t *testing.T) {
+	a, tok := setup(t)
+	a.TrustedProxies = []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32")}
+	var got string
+	h := a.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		p, _ := FromContext(r.Context())
+		got = p.ClientIP
+	}))
+	v := a.MCPVerifier()
+	for _, c := range []struct{ peer, want string }{
+		{"198.51.100.7:1234", "198.51.100.7"},
+		{"172.20.0.10:1234", "203.0.113.9"},
+	} {
+		r := httptest.NewRequest("POST", "/api/v1/whoami", nil)
+		r.RemoteAddr = c.peer
+		r.Header.Set("X-Forwarded-For", "203.0.113.9")
+		r.Header.Set("Authorization", "Bearer "+tok)
+		got = ""
+		h.ServeHTTP(httptest.NewRecorder(), r)
+		if got != c.want {
+			t.Errorf("middleware, peer %s: client IP %q, want %q", c.peer, got, c.want)
+		}
+		info, err := v(context.Background(), tok, r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p := info.Extra["principal"].(service.Principal); p.ClientIP != c.want {
+			t.Errorf("MCP verifier, peer %s: client IP %q, want %q", c.peer, p.ClientIP, c.want)
+		}
+	}
+}
+
+// Well-formed tokens that are unknown (or revoked) count as failures too,
+// not only malformed ones.
+func TestUnknownTokenCountsAsFailure(t *testing.T) {
+	a, _ := setup(t)
+	a.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	unknown, _, _, _ := auth.GenerateToken()
+	for range 3 {
+		if _, err := a.Verify(context.Background(), unknown, "192.0.2.9"); !errors.Is(err, ErrUnauthorized) {
+			t.Fatalf("unknown token: %v", err)
+		}
+	}
+	if !a.Limiter.Blocked("192.0.2.9") {
+		t.Fatal("repeated unknown tokens must block the IP")
+	}
+}
+
+// A store error while resolving the token fails closed: no principal, a
+// 500, and the handler never runs.
+func TestStoreErrorFailsClosed(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "a.db")
+	a, tok := setupAt(t, dbPath)
+	a.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	// Break only the workspace row: the token lookup fails while other
+	// statements (such as TouchToken) still work.
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`UPDATE workspaces SET max_apps='many'`); err != nil {
+		t.Fatal(err)
+	}
+	if p, err := a.Verify(context.Background(), tok, "192.0.2.9"); err == nil || errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("Verify = %+v, %v; want an internal error", p, err)
+	}
+	ran := false
+	h := a.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { ran = true }))
+	r := httptest.NewRequest("POST", "/api/v1/whoami", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusInternalServerError || ran {
+		t.Fatalf("store error: status %d, handler ran=%v; want 500 and no run", w.Code, ran)
 	}
 }

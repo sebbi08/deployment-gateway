@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -126,6 +128,34 @@ func TestNewAuthenticatorWiring(t *testing.T) {
 	}
 }
 
+// The agent limiter blocks an address after 10 failed logins within a
+// minute, for 15 minutes.
+func TestNewAuthenticatorLimiterValues(t *testing.T) {
+	a := newAuthenticator(nil, config.Config{}, slog.Default())
+	start := time.Unix(1_000_000, 0)
+	now := start
+	a.Limiter.Now = func() time.Time { return now }
+	for i := range 10 {
+		if a.Limiter.Blocked("192.0.2.1") {
+			t.Fatalf("blocked after %d failures", i)
+		}
+		now = start.Add(time.Duration(i) * 5 * time.Second) // 10 failures over 45 s
+		a.Limiter.Fail("192.0.2.1")
+	}
+	if !a.Limiter.Blocked("192.0.2.1") {
+		t.Fatal("10 failures within a minute must block")
+	}
+	blockedAt := now
+	now = blockedAt.Add(15*time.Minute - time.Second)
+	if !a.Limiter.Blocked("192.0.2.1") {
+		t.Fatal("block ended before 15 minutes")
+	}
+	now = blockedAt.Add(15 * time.Minute)
+	if a.Limiter.Blocked("192.0.2.1") {
+		t.Fatal("block lasted more than 15 minutes")
+	}
+}
+
 // Both agent endpoints read the whole body before checking the token.
 func TestAgentHandlerReadsBodyBeforeAuth(t *testing.T) {
 	st, err := store.Open(filepath.Join(t.TempDir(), "m.db"))
@@ -241,6 +271,31 @@ func TestAdminOptionsTrustWiring(t *testing.T) {
 	}
 	if o.UserHeader != "Remote-User" || o.PasswordHash != "hash" {
 		t.Fatalf("options = %+v", o)
+	}
+}
+
+// The Docker daemon resolves bind sources on the host, so a symlinked
+// WORKSPACES_ROOT is refused before anything else starts.
+func TestServeRefusesSymlinkedWorkspacesRoot(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "real")
+	if err := os.Mkdir(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	// DataDir below a regular file: should the check ever pass, serve
+	// still stops at MkdirAll instead of reaching Docker.
+	blocker := filepath.Join(dir, "file")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{WorkspacesRoot: link, DataDir: filepath.Join(blocker, "data")}
+	err := serve(context.Background(), cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err == nil || !strings.Contains(err.Error(), "symlinks") {
+		t.Fatalf("serve with a symlinked root: %v, want the symlink error", err)
 	}
 }
 

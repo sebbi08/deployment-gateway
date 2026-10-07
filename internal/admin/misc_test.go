@@ -96,6 +96,27 @@ func TestAuditFiltersAndPaging(t *testing.T) {
 	}
 }
 
+// A limit above 500 falls back to the default page size, and paging still
+// works: next_before points at the rows that did not fit.
+func TestAuditOversizeLimitKeepsPaging(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	c := e.login(t)
+	for i := range 101 {
+		if err := e.st.InsertAudit(context.Background(), store.AuditEntry{ActorType: "system", Actor: "test", Action: "probe",
+			Params: "{}", Result: "ok", Severity: "info", Error: strconv.Itoa(i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	type page struct {
+		Entries    []auditDTO `json:"entries"`
+		NextBefore int64      `json:"next_before"`
+	}
+	p := decode[page](t, e.do("GET", "/api/admin/audit?action=probe&limit=501", nil, c))
+	if len(p.Entries) != 100 || p.NextBefore == 0 {
+		t.Fatalf("limit=501: %d entries, next_before %d; want 100 and a next page", len(p.Entries), p.NextBefore)
+	}
+}
+
 func TestSettingsAPI(t *testing.T) {
 	e := newEnv(t, false, builtUI)
 	c := e.login(t)

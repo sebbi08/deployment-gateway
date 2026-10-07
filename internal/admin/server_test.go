@@ -3,6 +3,7 @@ package admin
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/sebbi08/deployment-gateway/internal/auth"
 	"github.com/sebbi08/deployment-gateway/internal/service"
@@ -348,6 +350,121 @@ func TestProxyModeRejectsIdentityHeaderFromUntrustedPeer(t *testing.T) {
 	}
 	if w := e.do("GET", "/api/admin/workspaces", nil, forged); w.Code != http.StatusForbidden {
 		t.Fatalf("forged identity header got %d on the API, want 403", w.Code)
+	}
+}
+
+// Every admin response carries the strict CSP (no inline or eval'd
+// scripts, no framing) plus nosniff and no-referrer.
+func TestSecurityHeaders(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	for _, path := range []string{"/", "/api/admin/me"} {
+		h := e.do("GET", path, nil).Header()
+		directives := map[string]string{}
+		for _, d := range strings.Split(h.Get("Content-Security-Policy"), ";") {
+			name, value, _ := strings.Cut(strings.TrimSpace(d), " ")
+			directives[name] = value
+		}
+		if directives["script-src"] != "'self'" || directives["default-src"] != "'self'" || directives["frame-ancestors"] != "'none'" {
+			t.Errorf("%s: CSP = %q", path, h.Get("Content-Security-Policy"))
+		}
+		if h.Get("X-Content-Type-Options") != "nosniff" || h.Get("Referrer-Policy") != "no-referrer" {
+			t.Errorf("%s: headers = %v", path, h)
+		}
+	}
+}
+
+// argon2id needs 64 MiB per check; at most two run at once so login
+// attempts cannot exhaust a small host's memory.
+func TestLoginSlotsAreTwo(t *testing.T) {
+	if n := cap(New(Options{PasswordHash: "x"}).loginSlots); n != 2 {
+		t.Fatalf("login slots = %d, want 2", n)
+	}
+}
+
+// fakeClock is a settable time source for limiter and session tests.
+type fakeClock struct{ t time.Time }
+
+func (c *fakeClock) now() time.Time { return c.t }
+
+func passwordServer(t *testing.T) (*Server, http.Handler) {
+	t.Helper()
+	hash, err := auth.HashPassword("correct horse battery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(Options{PasswordHash: hash, UI: builtUI, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	return s, s.Handler()
+}
+
+func loginWith(h http.Handler, password string) *httptest.ResponseRecorder {
+	b, _ := json.Marshal(map[string]string{"password": password})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("POST", "/api/admin/login", bytes.NewReader(b)))
+	return w
+}
+
+// Admin sessions expire after 12 hours without a request, and each request
+// restarts that idle timer.
+func TestAdminSessionIdleTimeout(t *testing.T) {
+	s, h := passwordServer(t)
+	clock := &fakeClock{t: time.Unix(1_000_000, 0)}
+	s.sessions.Now = clock.now
+	w := loginWith(h, "correct horse battery")
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("login: %d", w.Code)
+	}
+	cookie := w.Result().Cookies()[0]
+	me := func() int {
+		r := httptest.NewRequest("GET", "/api/admin/me", nil)
+		r.AddCookie(cookie)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w.Code
+	}
+	clock.t = clock.t.Add(11*time.Hour + 59*time.Minute)
+	if c := me(); c != http.StatusOK {
+		t.Fatalf("session expired before 12 h idle: %d", c)
+	}
+	clock.t = clock.t.Add(12*time.Hour + time.Minute)
+	if c := me(); c != http.StatusUnauthorized {
+		t.Fatalf("session still valid after 12 h idle: %d", c)
+	}
+}
+
+// The admin login limiter blocks after 10 failures within 15 minutes, and
+// the block lasts 15 minutes.
+func TestAdminLoginLimiterWindowAndBlock(t *testing.T) {
+	s, h := passwordServer(t)
+	clock := &fakeClock{t: time.Unix(1_000_000, 0)}
+	s.limiter.Now = clock.now
+	for i := range 10 {
+		if i > 0 {
+			clock.t = clock.t.Add(90 * time.Second) // 10 failures over 13.5 minutes
+		}
+		loginWith(h, "wrong")
+	}
+	if w := loginWith(h, "correct horse battery"); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("10 failures in 15 min must block: %d", w.Code)
+	}
+	blockedAt := clock.t
+	clock.t = blockedAt.Add(14*time.Minute + 59*time.Second)
+	if w := loginWith(h, "correct horse battery"); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("block ended early: %d", w.Code)
+	}
+	clock.t = blockedAt.Add(15 * time.Minute)
+	if w := loginWith(h, "correct horse battery"); w.Code != http.StatusNoContent {
+		t.Fatalf("block did not end after 15 min: %d", w.Code)
+	}
+}
+
+// A login body with data after the JSON object is rejected outright.
+func TestLoginRejectsTrailingData(t *testing.T) {
+	e := newEnv(t, false, builtUI)
+	r := httptest.NewRequest("POST", "/api/admin/login", strings.NewReader(`{"password":"x"} {"password":"y"}`))
+	w := httptest.NewRecorder()
+	e.h.ServeHTTP(w, r)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "trailing data") {
+		t.Fatalf("got %d %s, want 400 trailing data", w.Code, w.Body.String())
 	}
 }
 

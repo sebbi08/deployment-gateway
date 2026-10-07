@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -134,6 +135,78 @@ func TestJSONResponsesAreNotHTMLEscaped(t *testing.T) {
 	writeJSON(rec, 200, map[string]string{"logs": "<a> & b"})
 	if !strings.Contains(rec.Body.String(), "<a> & b") {
 		t.Fatalf("body = %s", rec.Body.String())
+	}
+}
+
+// stubServer serves one route, "stub", backed by fn. With withAuth it runs
+// behind the bearer middleware and returns a valid token; otherwise the
+// route is reached without a principal.
+func stubServer(t *testing.T, withAuth bool, fn func(context.Context, service.Principal, service.NoInput) (any, error)) (*httptest.Server, string) {
+	t.Helper()
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	svc := service.New(st, &servicetest.FakeCompose{}, servicetest.NewFakeDocker(), t.TempDir())
+	svc.Chown = func(string, int, int) error { return nil }
+	mux := http.NewServeMux()
+	handle(mux, svc, "stub", fn)
+	if !withAuth {
+		srv := httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+		return srv, ""
+	}
+	w, err := svc.CreateWorkspace(ctx, "admin", "alice", store.BuiltinDefaultQuota(), service.PortSettings{BindIP: "0.0.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := svc.CreateToken(ctx, "admin", w, "ci")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, time.Hour)}
+	srv := httptest.NewServer(authn.Middleware(mux))
+	t.Cleanup(srv.Close)
+	return srv, tok
+}
+
+// Errors that are not *service.Error (paths, driver messages) never reach
+// the agent; it gets a generic internal error.
+func TestNonServiceErrorsAreMasked(t *testing.T) {
+	srv, tok := stubServer(t, true, func(context.Context, service.Principal, service.NoInput) (any, error) {
+		return nil, errors.New("open /srv/secret/compose.yml: permission denied")
+	})
+	code, m := post(t, srv, tok, "stub", "{}")
+	if code != http.StatusInternalServerError || m["code"] != service.CodeInternal || m["message"] != "internal error" {
+		t.Fatalf("got %d %v, want 500 internal error", code, m)
+	}
+	if strings.Contains(fmt.Sprint(m), "/srv/secret") {
+		t.Fatalf("internal detail leaked: %v", m)
+	}
+}
+
+// A route reached without a principal (e.g. mounted without the bearer
+// middleware) answers 401 and never runs the tool.
+func TestHandlerWithoutPrincipalIsUnauthorized(t *testing.T) {
+	ran := false
+	srv, _ := stubServer(t, false, func(context.Context, service.Principal, service.NoInput) (any, error) {
+		ran = true
+		return map[string]string{}, nil
+	})
+	code, m := post(t, srv, "", "stub", "{}")
+	if code != http.StatusUnauthorized || m["code"] != service.CodeUnauthorized || ran {
+		t.Fatalf("got %d %v (ran=%v), want 401 and no run", code, m, ran)
+	}
+}
+
+// A body with anything after the JSON object is rejected, not partly read.
+func TestTrailingDataRejected(t *testing.T) {
+	srv, tok := setup(t)
+	code, m := post(t, srv, tok, "whoami", `{} {"app":"x"}`)
+	if code != http.StatusBadRequest || !strings.Contains(fmt.Sprint(m["message"]), "trailing data") {
+		t.Fatalf("got %d %v, want 400 trailing data", code, m)
 	}
 }
 

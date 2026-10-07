@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/sebbi08/deployment-gateway/internal/agentauth"
@@ -277,5 +278,63 @@ func TestEveryToolOverStreamableHTTP(t *testing.T) {
 		if err != nil || res.IsError {
 			t.Fatalf("%s %v: %v %+v", c.tool, c.args, err, res)
 		}
+	}
+}
+
+// A token without a gateway principal (e.g. from another verifier) is not
+// authenticated.
+func TestPrincipalRequiresGatewayPrincipal(t *testing.T) {
+	for name, req := range map[string]*mcp.CallToolRequest{
+		"no extra":        {},
+		"no token":        {Extra: &mcp.RequestExtra{}},
+		"no principal":    {Extra: &mcp.RequestExtra{TokenInfo: &sdkauth.TokenInfo{Extra: map[string]any{}}}},
+		"wrong principal": {Extra: &mcp.RequestExtra{TokenInfo: &sdkauth.TokenInfo{Extra: map[string]any{"principal": "alice"}}}},
+	} {
+		if _, err := principal(req); err == nil || !strings.Contains(err.Error(), "unauthorized") {
+			t.Errorf("%s: err = %v, want unauthorized", name, err)
+		}
+	}
+	want := service.Principal{TokenID: 7}
+	got, err := principal(&mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &sdkauth.TokenInfo{Extra: map[string]any{"principal": want}}}})
+	if err != nil || got.TokenID != 7 {
+		t.Fatalf("principal = %+v, %v", got, err)
+	}
+}
+
+// A tool call that reaches the server without the bearer middleware (here:
+// an in-memory transport) is refused before the service runs.
+func TestToolsWithoutPrincipalAreUnauthorized(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	svc := service.New(st, &servicetest.FakeCompose{}, servicetest.NewFakeDocker(), t.TempDir())
+	serverT, clientT := mcp.NewInMemoryTransports()
+	ss, err := New(svc, "test").Connect(ctx, serverT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ss.Close()
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "1"}, nil).Connect(ctx, clientT, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	for _, c := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"whoami", map[string]any{}},
+		{"logs", map[string]any{"app": "shop", "service": "web"}},
+	} {
+		res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: c.tool, Arguments: c.args})
+		if err != nil || !res.IsError || !strings.Contains(res.Content[0].(*mcp.TextContent).Text, `"code":"unauthorized"`) {
+			t.Fatalf("%s without principal: %v %+v, want an unauthorized tool error", c.tool, err, res)
+		}
+	}
+	if rows, _ := st.ListAudit(ctx, store.AuditFilter{}); len(rows) != 0 {
+		t.Fatalf("the service ran: audit rows = %+v", rows)
 	}
 }

@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/base64"
 	"fmt"
 	"net/http/httptest"
 	"net/netip"
@@ -207,5 +208,129 @@ func TestHashTokenCoversWholeToken(t *testing.T) {
 	}
 	if HashToken(tok) == HashToken(last) {
 		t.Fatal("the last token character does not change the hash")
+	}
+}
+
+// A block lasts the whole block duration, not just the instant it starts.
+func TestLimiterBlockLastsFullDuration(t *testing.T) {
+	now := time.Unix(1_000_000, 0)
+	l := NewLimiter(3, time.Minute, 15*time.Minute)
+	l.Now = func() time.Time { return now }
+	for range 3 {
+		l.Fail("192.0.2.1")
+	}
+	start := now
+	now = start.Add(15*time.Minute - time.Second)
+	if !l.Blocked("192.0.2.1") {
+		t.Fatal("block ended before the block duration")
+	}
+	now = start.Add(15 * time.Minute)
+	if l.Blocked("192.0.2.1") {
+		t.Fatal("block outlived the block duration")
+	}
+}
+
+// Failures spread across the window all count, not only those at the same
+// instant.
+func TestLimiterCountsFailuresAcrossWindow(t *testing.T) {
+	start := time.Unix(1_000_000, 0)
+	now := start
+	l := NewLimiter(3, time.Minute, 15*time.Minute)
+	l.Now = func() time.Time { return now }
+	for _, at := range []time.Duration{0, 25 * time.Second, 50 * time.Second} {
+		now = start.Add(at)
+		l.Fail("192.0.2.1")
+	}
+	if !l.Blocked("192.0.2.1") {
+		t.Fatal("three failures within one window must block")
+	}
+}
+
+// Failure bookkeeping is bounded: many distinct clients that never reach
+// the limit cannot grow the map without bound.
+func TestLimiterCapsTrackedFailures(t *testing.T) {
+	l := NewLimiter(3, time.Hour, time.Hour)
+	for i := range 10002 {
+		l.Fail(fmt.Sprintf("198.%d.%d.%d", i>>16&255, i>>8&255, i&255))
+	}
+	if n := len(l.fails); n > 10001 {
+		t.Fatalf("%d failure keys kept, want the map capped at 10000", n)
+	}
+}
+
+// Behind a chain of trusted proxies the first untrusted address from the
+// right is the client; an unparseable entry ends the walk at the peer, and
+// IPv4-mapped IPv6 entries match IPv4 prefixes.
+func TestClientIPWalksTrustedHops(t *testing.T) {
+	trusted := []netip.Prefix{netip.MustParsePrefix("172.20.0.0/16")}
+	r := httptest.NewRequest("GET", "/", nil)
+	r.RemoteAddr = "172.20.0.10:5555"
+	for _, c := range []struct{ xff, want string }{
+		{"203.0.113.7, 172.20.0.5", "203.0.113.7"},
+		{"6.6.6.6, unknown", "172.20.0.10"},
+		{"6.6.6.6, unknown, 172.20.0.5", "172.20.0.10"},
+		{"203.0.113.7, ::ffff:172.20.0.5", "203.0.113.7"},
+	} {
+		r.Header.Set("X-Forwarded-For", c.xff)
+		if got := ClientIP(r, trusted); got != c.want {
+			t.Errorf("XFF %q: got %s, want %s", c.xff, got, c.want)
+		}
+	}
+}
+
+// Each parameter check in parseHash rejects on its own: every case differs
+// from a valid hash in one field only, and the range bounds are inclusive.
+func TestParseHashChecksEachField(t *testing.T) {
+	salt := base64.RawStdEncoding.EncodeToString(make([]byte, 16))
+	key := base64.RawStdEncoding.EncodeToString(make([]byte, 32))
+	enc := func(alg, ver, params, salt, key string) string {
+		return "$" + alg + "$" + ver + "$" + params + "$" + salt + "$" + key
+	}
+	b64 := func(n int) string { return base64.RawStdEncoding.EncodeToString(make([]byte, n)) }
+	for _, ok := range []string{
+		enc("argon2id", "v=19", "m=65536,t=3,p=2", salt, key),
+		enc("argon2id", "v=19", "m=8192,t=1,p=1", b64(8), b64(16)),
+		enc("argon2id", "v=19", "m=1048576,t=10,p=16", salt, b64(64)),
+	} {
+		if err := ValidPasswordHash(ok); err != nil {
+			t.Errorf("valid hash %q rejected: %v", ok, err)
+		}
+	}
+	for name, bad := range map[string]string{
+		"argon2i":   enc("argon2i", "v=19", "m=65536,t=3,p=2", salt, key),
+		"version":   enc("argon2id", "v=16", "m=65536,t=3,p=2", salt, key),
+		"m too big": enc("argon2id", "v=19", "m=1048577,t=3,p=2", salt, key),
+		"m too low": enc("argon2id", "v=19", "m=8191,t=3,p=2", salt, key),
+		"t too big": enc("argon2id", "v=19", "m=65536,t=11,p=2", salt, key),
+		"t zero":    enc("argon2id", "v=19", "m=65536,t=0,p=2", salt, key),
+		"p too big": enc("argon2id", "v=19", "m=65536,t=3,p=17", salt, key),
+		"p zero":    enc("argon2id", "v=19", "m=65536,t=3,p=0", salt, key),
+		"salt":      enc("argon2id", "v=19", "m=65536,t=3,p=2", b64(7), key),
+		"key short": enc("argon2id", "v=19", "m=65536,t=3,p=2", salt, b64(15)),
+		"key long":  enc("argon2id", "v=19", "m=65536,t=3,p=2", salt, b64(65)),
+	} {
+		if ValidPasswordHash(bad) == nil {
+			t.Errorf("%s: %q accepted", name, bad)
+		}
+	}
+}
+
+// Every hash gets a fresh random salt: hashing one password twice yields
+// different hashes, and neither salt is all zeros.
+func TestHashPasswordUsesRandomSalt(t *testing.T) {
+	h1, err := HashPassword("correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h2, err := HashPassword("correct horse")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h1 == h2 {
+		t.Fatal("two hashes of one password are identical")
+	}
+	zero := base64.RawStdEncoding.EncodeToString(make([]byte, 16))
+	if strings.Split(h1, "$")[4] == zero || strings.Split(h2, "$")[4] == zero {
+		t.Fatal("salt is all zeros")
 	}
 }
