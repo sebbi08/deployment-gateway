@@ -1,7 +1,24 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"],
   "packageRules": [
+    {
+      "groupName": "github-actions",
+      "matchManagers": ["github-actions"]
+    },
+    {
+      "groupName": "node",
+      "matchDepNames": ["node", "@types/node"]
+    },
+    {
+      "groupName": "go",
+      "matchDepNames": ["go", "golang"]
+    },
+    {
+      "groupName": "moby",
+      "matchPackageNames": ["github.com/moby/moby/**"]
+    },
     {
       "groupName": "patch-all",
       "matchUpdateTypes": ["patch", "digest"],
@@ -10,6 +27,11 @@
     {
       "groupName": "minor-updates-npm",
       "matchDatasources": ["npm"],
+      "matchUpdateTypes": ["minor"]
+    },
+    {
+      "groupName": "minor-updates-go",
+      "matchDatasources": ["go"],
       "matchUpdateTypes": ["minor"]
     }
   ]
