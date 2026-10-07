@@ -49,6 +49,10 @@ func TestLoadErrors(t *testing.T) {
 		"relative root":    func(m map[string]string) { m["WORKSPACES_ROOT"] = "workspaces" },
 		"unclean root":     func(m map[string]string) { m["WORKSPACES_ROOT"] = "/srv/dg/../x" },
 		"proxy incomplete": func(m map[string]string) { delete(m, "ADMIN_PASSWORD_HASH"); m["ADMIN_USER_HEADER"] = "Remote-User" },
+		"proxy no header": func(m map[string]string) {
+			delete(m, "ADMIN_PASSWORD_HASH")
+			m["ADMIN_TRUSTED_PROXIES"] = "172.20.0.10"
+		},
 		"bad hash":         func(m map[string]string) { m["ADMIN_PASSWORD_HASH"] = "plaintext" },
 		"bad proxies":      func(m map[string]string) { m["TRUSTED_PROXIES"] = "not-an-ip" },
 		"trust all v4":     func(m map[string]string) { m["TRUSTED_PROXIES"] = "10.0.0.1, 0.0.0.0/0" },
@@ -56,7 +60,9 @@ func TestLoadErrors(t *testing.T) {
 		"admin trust all":  func(m map[string]string) { m["ADMIN_TRUSTED_PROXIES"] = "0.0.0.0/0" },
 		"admin trust all6": func(m map[string]string) { m["ADMIN_TRUSTED_PROXIES"] = "::/0" },
 		"bad timeout":      func(m map[string]string) { m["DEPLOY_TIMEOUT"] = "1s" },
+		"timeout too long": func(m map[string]string) { m["DEPLOY_TIMEOUT"] = "2h" },
 		"bad concurrency":  func(m map[string]string) { m["DEPLOY_CONCURRENCY"] = "0" },
+		"concurrency high": func(m map[string]string) { m["DEPLOY_CONCURRENCY"] = "9" },
 	}
 	for name, f := range cases {
 		m := base()

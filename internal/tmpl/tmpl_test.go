@@ -46,23 +46,39 @@ func TestValidateRejects(t *testing.T) {
 		want   string
 	}{
 		{"bad name", func(t *Template) { t.Name = "Public" }, "name"},
+		{"description too long", func(t *Template) { t.Description = strings.Repeat("d", 501) }, "description longer than 500"},
 		{"literal in subdomain", func(t *Template) { t.HostPattern = "app-{{app}}.{{workspace}}.example.com" }, "host_pattern must be"},
 		{"adjacent placeholders", func(t *Template) { t.HostPattern = "{{app}}{{workspace}}.example.com" }, "host_pattern must be"},
 		{"underscore separator", func(t *Template) { t.HostPattern = "{{app}}_{{workspace}}.example.com" }, "host_pattern must be"},
 		{"missing workspace", func(t *Template) { t.HostPattern = "{{app}}.apps.example.com" }, "{{workspace}}"},
+		{"missing app", func(t *Template) { t.HostPattern = "{{workspace}}.apps.example.com" }, "must contain {{workspace}} and {{app}}"},
 		{"duplicate placeholder", func(t *Template) { t.HostPattern = "{{app}}.{{app}}.{{workspace}}.example.com" }, "more than once"},
 		{"single label suffix", func(t *Template) { t.HostPattern = "{{app}}.{{workspace}}.localhost" }, "at least two labels"},
 		{"uppercase suffix", func(t *Template) { t.HostPattern = "{{app}}.{{workspace}}.Example.com" }, "host_pattern must be"},
+		{"invalid suffix label", func(t *Template) { t.HostPattern = "{{app}}.{{workspace}}.-apps.example.com" }, "host suffix"},
+		{"longest host over 253", func(t *Template) {
+			l := strings.Repeat("a", 60)
+			t.HostPattern = "{{app}}.{{workspace}}." + strings.Join([]string{l, l, l, l}, ".")
+		}, "longest possible host"},
 		{"host network", func(t *Template) { t.Networks = []string{"host"} }, `"host"`},
+		{"bridge network", func(t *Template) { t.Networks = []string{"bridge"} }, `"bridge"`},
+		{"none network", func(t *Template) { t.Networks = []string{"none"} }, `"none"`},
+		{"invalid network name", func(t *Template) { t.Networks = []string{"apps net"} }, "invalid network name"},
 		{"reserved dg- network", func(t *Template) { t.Networks = []string{"dg-alice-shop"} }, "dg-"},
 		{"owner label", func(t *Template) { t.Labels["deploy-gateway.workspace"] = "x" }, "deploy-gateway."},
+		{"owner label upper case", func(t *Template) { t.Labels["Deploy-Gateway.workspace"] = "x" }, "the deploy-gateway. prefix is reserved"},
+		{"invalid label key", func(t *Template) { t.Labels["traefik enable"] = "x" }, "invalid label key"},
 		{"compose label", func(t *Template) { t.Labels["Com.Docker.Compose.project"] = "x" }, "com.docker.compose."},
 		{"placeholder completes owner prefix", func(t *Template) { t.Labels["deploy-{{app}}.workspace"] = "bob" }, "deploy-gateway."},
 		{"placeholder completes compose prefix", func(t *Template) { t.Labels["com.docker.{{app}}.project"] = "x" }, "com.docker.compose."},
 		{"label key starts with placeholder", func(t *Template) { t.Labels["{{app}}.x"] = "y" }, "must not start with a placeholder"},
 		{"unknown placeholder", func(t *Template) { t.Labels["x"] = "{{secret}}" }, "unknown placeholder"},
 		{"malformed placeholder", func(t *Template) { t.Labels["x"] = "{{app" }, "malformed"},
+		{"stray closing braces", func(t *Template) { t.Labels["x"] = "app}}" }, "malformed"},
 		{"newline in value", func(t *Template) { t.Labels["x"] = "a\nb" }, "newline"},
+		{"carriage return in value", func(t *Template) { t.Labels["x"] = "a\rb" }, "newline"},
+		{"NUL in value", func(t *Template) { t.Labels["x"] = "a\x00b" }, "NUL"},
+		{"value too long", func(t *Template) { t.Labels["x"] = strings.Repeat("v", 4097) }, "longer than 4096"},
 		{"host without pattern", func(t *Template) { t.HostPattern = "" }, "{{host}}"},
 		{"keys collide after rendering", func(t *Template) {
 			t.Labels["traefik.http.routers.{{workspace}}-{{app}}-{{service}}.rule"] = "Host(`x`)"
@@ -122,6 +138,11 @@ func TestRender(t *testing.T) {
 	}
 	if labels["traefik.http.services.alice-my-shop-web.loadbalancer.server.port"] != "8080" {
 		t.Fatalf("labels = %v", labels)
+	}
+	// Each name placeholder renders its own value, in keys and values.
+	tpl.Labels["x.{{workspace}}.{{app}}.{{service}}"] = "{{service}}/{{app}}/{{workspace}}"
+	if got := tpl.RenderLabels(v)["x.alice.my-shop.web"]; got != "web/my-shop/alice" {
+		t.Fatalf("name placeholders rendered %q, labels = %v", got, tpl.RenderLabels(v))
 	}
 	if tpl.Shareable() {
 		t.Fatal("public-web has no {{service}}; must not be shareable")
