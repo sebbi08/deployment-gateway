@@ -1,7 +1,7 @@
 import { Button, Group, Loader, SegmentedControl, Stack, TextInput, Title } from "@mantine/core";
 import { useDebouncedValue } from "@mantine/hooks";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "../api";
 import { AuditTable } from "../components/AuditTable";
 import { ErrorAlert } from "../components/ErrorAlert";
@@ -12,7 +12,10 @@ export function Audit() {
   const [result, setResult] = useState("");
   const [severity, setSeverity] = useState("any");
   const [cursors, setCursors] = useState<number[]>([]);
-  const [text] = useDebouncedValue({ workspace, action, result }, 300);
+  // A stable object: a new literal on every render restarts the debounce
+  // and re-renders the page forever.
+  const typed = useMemo(() => ({ workspace, action, result }), [workspace, action, result]);
+  const [text] = useDebouncedValue(typed, 300);
   const before = cursors.at(-1) ?? 0;
   const filter = { ...text, severity: severity === "any" ? "" : severity, before };
   const q = useQuery({ queryKey: ["audit", filter], queryFn: () => api.audit(filter), placeholderData: keepPreviousData });
