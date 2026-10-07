@@ -177,6 +177,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	}
 
 	warnUntrustedProxies(cfg, logger)
+	warnBroadAdminProxies(cfg, logger)
 	authn := newAuthenticator(st, cfg, logger)
 	adminSrv := admin.New(admin.Options{Svc: svc, Store: st, PasswordHash: cfg.AdminPasswordHash,
 		TrustedProxies: cfg.AdminTrustedProxies, ForwardedProxies: cfg.TrustedProxies, UserHeader: cfg.AdminUserHeader, UI: webui.FS(), Logger: logger})
@@ -227,6 +228,21 @@ func newAuthenticator(st *store.Store, cfg config.Config, logger *slog.Logger) *
 	return &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, 15*time.Minute),
 		TrustedProxies: cfg.TrustedProxies, Logger: logger, MaxInFlight: maxInFlightPerToken,
 		RateBurst: rateBurstPerToken, RatePerSecond: ratePerTokenPerSec}
+}
+
+// warnBroadAdminProxies flags address ranges in ADMIN_TRUSTED_PROXIES in
+// proxy mode: every container that gets an address in the range can send
+// the identity header and act as admin.
+func warnBroadAdminProxies(cfg config.Config, logger *slog.Logger) {
+	if !cfg.ProxyMode() {
+		return
+	}
+	for _, p := range cfg.AdminTrustedProxies {
+		if p.Bits() < p.Addr().BitLen() {
+			logger.Warn("ADMIN_TRUSTED_PROXIES contains a range: every container with an address in it can claim an admin identity; use the reverse proxy's pinned single IP or a network only the proxy and the gateway share",
+				"prefix", p.String())
+		}
+	}
 }
 
 // warnUntrustedProxies flags a missing TRUSTED_PROXIES: behind a reverse

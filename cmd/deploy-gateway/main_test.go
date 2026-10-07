@@ -143,3 +143,27 @@ func TestAgentHandlerReadsBodyBeforeAuth(t *testing.T) {
 		}
 	}
 }
+
+// In proxy mode the identity header is trusted from every address in
+// ADMIN_TRUSTED_PROXIES; a range lets other containers on that network
+// claim an admin identity.
+func TestWarnBroadAdminProxies(t *testing.T) {
+	logs := func(cfg config.Config) string {
+		var buf bytes.Buffer
+		warnBroadAdminProxies(cfg, slog.New(slog.NewTextHandler(&buf, nil)))
+		return buf.String()
+	}
+	broad := config.Config{AdminTrustedProxies: []netip.Prefix{netip.MustParsePrefix("172.20.0.0/16")}}
+	if out := logs(broad); !strings.Contains(out, "ADMIN_TRUSTED_PROXIES") || !strings.Contains(out, "172.20.0.0/16") {
+		t.Fatalf("proxy mode with a range must warn, got %q", out)
+	}
+	single := config.Config{AdminTrustedProxies: []netip.Prefix{netip.MustParsePrefix("172.20.0.10/32"), netip.MustParsePrefix("fd00::5/128")}}
+	if out := logs(single); out != "" {
+		t.Fatalf("single addresses must not warn, got %q", out)
+	}
+	password := broad
+	password.AdminPasswordHash = "$argon2id$x"
+	if out := logs(password); out != "" {
+		t.Fatalf("password mode must not warn, got %q", out)
+	}
+}

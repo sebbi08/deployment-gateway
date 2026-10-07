@@ -46,7 +46,7 @@ Configuration is read from environment variables (see `deploy/.env.example`): `A
 
 ## Admin UI
 
-Open the admin host (`https://$ADMIN_HOST`, e.g. `https://deploy-admin.example.com`). Optionally protect it with a forward-auth middleware (Authelia, oauth2-proxy, …) via the commented label in `deploy/docker-compose.yml`.
+Open the admin host (`https://$ADMIN_HOST`, e.g. `https://deploy-admin.example.com`). Optionally protect it with a forward-auth middleware (Authelia, oauth2-proxy, …) via the commented label in `deploy/docker-compose.yml`. In proxy mode (empty `ADMIN_PASSWORD_HASH`) that middleware is required and must set or overwrite `ADMIN_USER_HEADER`, and `ADMIN_TRUSTED_PROXIES` must be the proxy's pinned single IP; the gateway warns at startup if it contains a range.
 
 1. **Templates** → create an exposure template, for example:
    - Name `public-web`, host pattern `{{app}}.{{workspace}}.apps.example.com` (or `{{app}}-{{workspace}}.apps.example.com` for a single-level wildcard cert), network `apps`

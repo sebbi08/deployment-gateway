@@ -35,7 +35,8 @@ services:
       traefik.http.routers.deploy-gateway-admin.entrypoints: ${TRAEFIK_ENTRYPOINT:-websecure}
       traefik.http.routers.deploy-gateway-admin.service: deploy-gateway-admin
       traefik.http.services.deploy-gateway-admin.loadbalancer.server.port: 8081
-      # Optional: put a forward-auth middleware (Authelia, oauth2-proxy, ...) in front of the admin UI.
+      # Forward-auth middleware (Authelia, oauth2-proxy, ...) in front of the admin UI: optional in password mode,
+      # REQUIRED in proxy mode (empty ADMIN_PASSWORD_HASH); it must set or overwrite ADMIN_USER_HEADER.
       # traefik.http.routers.deploy-gateway-admin.middlewares: my-forward-auth@docker
       # Add tls / certresolver labels here if your entrypoint does not enable TLS by default.
     networks:
