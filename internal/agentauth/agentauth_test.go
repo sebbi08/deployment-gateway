@@ -292,3 +292,21 @@ func TestRateLimitPerToken(t *testing.T) {
 		t.Fatalf("bucket must refill over time: %d", w.Code)
 	}
 }
+
+func TestInternalAuthErrorsAreLogged(t *testing.T) {
+	a, tok := setup(t)
+	var buf bytes.Buffer
+	a.Logger = slog.New(slog.NewTextHandler(&buf, nil))
+	a.Store.Close() // every lookup now fails
+	h := a.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	r := httptest.NewRequest("POST", "/api/v1/whoami", nil)
+	r.Header.Set("Authorization", "Bearer "+tok)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	if w.Code != http.StatusInternalServerError || !strings.Contains(buf.String(), "level=ERROR") || !strings.Contains(buf.String(), "agent auth error") {
+		t.Fatalf("status %d, log %q", w.Code, buf.String())
+	}
+	if strings.Contains(buf.String(), tok) {
+		t.Fatal("token logged")
+	}
+}

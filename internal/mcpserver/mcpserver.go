@@ -22,6 +22,7 @@ Images must already be pushed to a registry with a pinned tag. You never supply 
 
 func New(svc *service.Service, version string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "deploy-gateway", Version: version}, &mcp.ServerOptions{Instructions: instructions})
+	s.AddReceivingMiddleware(auditRejected(svc))
 	destructive := true
 	addTool(s, &mcp.Tool{Name: "whoami", Description: "Show your workspace, quotas, current usage, published port range and the container naming scheme.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}},
@@ -70,6 +71,9 @@ func New(svc *service.Service, version string) *mcp.Server {
 
 func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, fn func(context.Context, service.Principal, In) (Out, error)) {
 	mcp.AddTool(s, t, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
+		if ran, ok := ctx.Value(ranKey{}).(*bool); ok {
+			*ran = true // the service audits the call from here on
+		}
 		var zero Out
 		p, err := principal(req)
 		if err != nil {
@@ -81,6 +85,46 @@ func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, fn func(context.Context, s
 		}
 		return nil, out, nil
 	})
+}
+
+type ranKey struct{}
+
+// auditRejected writes an audit row for tool calls the SDK rejects before
+// the tool handler runs (input schema violations, malformed arguments,
+// unknown tools); calls that reach the handler are audited by the service.
+func auditRejected(svc *service.Service) mcp.Middleware {
+	return func(next mcp.MethodHandler) mcp.MethodHandler {
+		return func(ctx context.Context, method string, req mcp.Request) (mcp.Result, error) {
+			if method != "tools/call" {
+				return next(ctx, method, req)
+			}
+			ran := new(bool)
+			res, err := next(context.WithValue(ctx, ranKey{}, ran), method, req)
+			call, ok := req.(*mcp.CallToolRequest)
+			if *ran || !ok || call.Params == nil {
+				return res, err
+			}
+			p, perr := principal(call)
+			if perr != nil {
+				return res, err
+			}
+			reason := ""
+			if err != nil {
+				reason = err.Error()
+			} else if r, ok := res.(*mcp.CallToolResult); ok && r.IsError {
+				for _, c := range r.Content {
+					if tc, ok := c.(*mcp.TextContent); ok {
+						reason = tc.Text
+						break
+					}
+				}
+			} else {
+				return res, err
+			}
+			svc.AuditRejected(ctx, p, call.Params.Name, call.Params.Arguments, "rejected before the tool ran: "+reason)
+			return res, err
+		}
+	}
 }
 
 // toolError passes *service.Error through (its Error() is JSON, so the agent

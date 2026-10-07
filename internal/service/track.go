@@ -24,6 +24,26 @@ func (s *Service) track(ctx context.Context, p Principal, action string, params 
 	s.finish(ctx, &e, errp, start)
 }
 
+// AuditRejected records an agent call that was rejected before it reached
+// the service (malformed body, unknown fields, input schema violations).
+func (s *Service) AuditRejected(ctx context.Context, p Principal, action string, raw []byte, reason string) {
+	var params any
+	if err := json.Unmarshal(raw, &params); err != nil {
+		params = map[string]any{"unparsable_body_bytes": len(raw)}
+	}
+	if len(reason) > 1024 {
+		reason = reason[:1024] + "…"
+	}
+	e := store.AuditEntry{
+		Time: time.Now(), ActorType: "agent", Actor: fmt.Sprintf("token:%d", p.TokenID), Workspace: p.Workspace.Name,
+		TokenID: p.TokenID, Action: action, Params: redact(params), ClientIP: p.ClientIP,
+		Result: CodeValidation, Error: reason, Severity: "warn",
+	}
+	if err := s.Store.InsertAudit(context.WithoutCancel(ctx), e); err != nil {
+		s.Logger.Error("audit write failed", "err", err, "action", action)
+	}
+}
+
 func (s *Service) adminTrack(ctx context.Context, actor, workspace, action string, params any, errp *error, start time.Time) {
 	e := store.AuditEntry{Time: start, ActorType: "admin", Actor: actor, Workspace: workspace, Action: action, Params: redact(params)}
 	s.finish(ctx, &e, errp, start)

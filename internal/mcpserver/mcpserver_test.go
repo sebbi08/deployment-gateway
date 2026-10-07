@@ -31,6 +31,12 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func setup(t *testing.T) (string, string) {
 	t.Helper()
+	url, tok, _ := setupWithStore(t)
+	return url, tok
+}
+
+func setupWithStore(t *testing.T) (string, string, *store.Store) {
+	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(filepath.Join(t.TempDir(), "m.db"))
 	if err != nil {
@@ -52,7 +58,7 @@ func setup(t *testing.T) (string, string) {
 	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, time.Hour)}
 	srv := httptest.NewServer(Handler(New(svc, "test"), authn))
 	t.Cleanup(srv.Close)
-	return srv.URL, tok
+	return srv.URL, tok, st
 }
 
 func connect(t *testing.T, url, token string) (*mcp.ClientSession, error) {
@@ -169,5 +175,25 @@ func TestOversizeBodyRejected(t *testing.T) {
 		strings.Repeat("x", 200<<10) + `"}}}}}}}`
 	if resp := rawPost(t, url, tok, body, "2025-06-18"); resp.StatusCode != http.StatusRequestEntityTooLarge {
 		t.Fatalf("200 KB body got %d, want 413", resp.StatusCode)
+	}
+}
+
+// The SDK rejects arguments that fail the tool's input schema before our
+// handler runs; such calls must still leave an audit row.
+func TestSchemaRejectedToolCallsAreAudited(t *testing.T) {
+	url, tok, st := setupWithStore(t)
+	cs, err := connect(t, url, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "validate",
+		Arguments: map[string]any{"app": "shop", "stack": map[string]any{"services": map[string]any{"web": map[string]any{"image": "a:1", "cap_add": []string{"ALL"}}}}}})
+	if err != nil || !res.IsError {
+		t.Fatalf("want a tool error, got %+v %v", res, err)
+	}
+	rows, err := st.ListAudit(context.Background(), store.AuditFilter{Action: "validate"})
+	if err != nil || len(rows) != 1 || rows[0].Result != service.CodeValidation || !strings.Contains(rows[0].Params, "cap_add") {
+		t.Fatalf("audit rows = %+v (%v)", rows, err)
 	}
 }

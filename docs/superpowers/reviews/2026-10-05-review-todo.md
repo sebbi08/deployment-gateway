@@ -95,8 +95,9 @@ Source: multi-agent review; every finding checked by 1–3 independent verifiers
 ## Low
 
   - Done: root-owned data/<svc> (no user or uid 0) is created 0700; README/spec recommend nosuid,nodev for WORKSPACES_ROOT.
-- [ ] **LO1** (F15, confirmed) Rejected agent calls (401, rate-limited, decode/schema errors) are neither audited nor logged — [internal/agentauth/agentauth.go:57](../../../internal/agentauth/agentauth.go#L57)
+- [x] **LO1** (F15, confirmed) Rejected agent calls (401, rate-limited, decode/schema errors) are neither audited nor logged — [internal/agentauth/agentauth.go:57](../../../internal/agentauth/agentauth.go#L57)
   - Fix: Give Authenticator a Logger. Log a warning for unknown tokens and when an IP becomes blocked, with client_ip and the token's display prefix, never the token itself. Log internal errors at error level. For authenticated calls rejected before the service, write an agent audit row (result validation_failed, raw body size-capped with env values redacted): in api.go before the 400, and on MCP by taking json.RawMessage …
+  - Done: authenticated calls rejected before the service (API decode errors, MCP schema rejections) get an audit row (Service.AuditRejected, MCP receiving middleware); internal auth errors are logged at error level; auth failures and blocks were already logged since H1.
 - [ ] **LO2** (F16, confirmed) MCP auth returns raw internal error text (e.g. SQLite errors) to unauthenticated clients — [internal/agentauth/agentauth.go:86](../../../internal/agentauth/agentauth.go#L86)
   - Fix: In MCPVerifier, replace `return nil, err` with a generic error such as `errors.New("internal error")`, so the SDK answers 500 "internal error". Also add a Logger to Authenticator and log the underlying Verify error in both MCPVerifier and Middleware; today neither path logs it, so operators never see store failures during auth. Add a test that closes the store and checks the /mcp response body contains no "sql:" …
 - [ ] **LO3** (F17, confirmed) ClientIP reads only the first X-Forwarded-For header line, letting clients choose their IP — [internal/auth/clientip.go:18](../../../internal/auth/clientip.go#L18)

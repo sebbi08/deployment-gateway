@@ -23,35 +23,35 @@ type Handler struct {
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	s := h.Svc
-	handle(mux, "whoami", func(ctx context.Context, p service.Principal, _ service.NoInput) (any, error) {
+	handle(mux, s, "whoami", func(ctx context.Context, p service.Principal, _ service.NoInput) (any, error) {
 		return s.Whoami(ctx, p)
 	})
-	handle(mux, "list_templates", func(ctx context.Context, p service.Principal, _ service.NoInput) (any, error) {
+	handle(mux, s, "list_templates", func(ctx context.Context, p service.Principal, _ service.NoInput) (any, error) {
 		return s.ListTemplates(ctx, p)
 	})
-	handle(mux, "validate", func(ctx context.Context, p service.Principal, in service.DeployInput) (any, error) {
+	handle(mux, s, "validate", func(ctx context.Context, p service.Principal, in service.DeployInput) (any, error) {
 		return s.Validate(ctx, p, in)
 	})
-	handle(mux, "deploy", func(ctx context.Context, p service.Principal, in service.DeployInput) (any, error) {
+	handle(mux, s, "deploy", func(ctx context.Context, p service.Principal, in service.DeployInput) (any, error) {
 		return s.Deploy(ctx, p, in)
 	})
-	handle(mux, "list", func(ctx context.Context, p service.Principal, _ service.NoInput) (any, error) { return s.List(ctx, p) })
-	handle(mux, "logs", func(ctx context.Context, p service.Principal, in service.LogsInput) (any, error) {
+	handle(mux, s, "list", func(ctx context.Context, p service.Principal, _ service.NoInput) (any, error) { return s.List(ctx, p) })
+	handle(mux, s, "logs", func(ctx context.Context, p service.Principal, in service.LogsInput) (any, error) {
 		return s.Logs(ctx, p, in)
 	})
-	handle(mux, "restart", func(ctx context.Context, p service.Principal, in service.ServiceInput) (any, error) {
+	handle(mux, s, "restart", func(ctx context.Context, p service.Principal, in service.ServiceInput) (any, error) {
 		return s.Restart(ctx, p, in)
 	})
-	handle(mux, "stop", func(ctx context.Context, p service.Principal, in service.ServiceInput) (any, error) {
+	handle(mux, s, "stop", func(ctx context.Context, p service.Principal, in service.ServiceInput) (any, error) {
 		return s.Stop(ctx, p, in)
 	})
-	handle(mux, "delete", func(ctx context.Context, p service.Principal, in service.DeleteInput) (any, error) {
+	handle(mux, s, "delete", func(ctx context.Context, p service.Principal, in service.DeleteInput) (any, error) {
 		return s.Delete(ctx, p, in)
 	})
 	return h.Auth.Middleware(mux)
 }
 
-func handle[In any](mux *http.ServeMux, name string, fn func(context.Context, service.Principal, In) (any, error)) {
+func handle[In any](mux *http.ServeMux, s *service.Service, name string, fn func(context.Context, service.Principal, In) (any, error)) {
 	mux.HandleFunc("POST /api/v1/"+name, func(w http.ResponseWriter, r *http.Request) {
 		p, ok := agentauth.FromContext(r.Context())
 		if !ok {
@@ -59,8 +59,10 @@ func handle[In any](mux *http.ServeMux, name string, fn func(context.Context, se
 			return
 		}
 		var in In
-		if err := decodeStrict(w, r, &in); err != nil {
-			writeJSON(w, http.StatusBadRequest, &service.Error{Code: service.CodeValidation, Message: "invalid request body: " + err.Error()})
+		if body, err := decodeStrict(w, r, &in); err != nil {
+			msg := "invalid request body: " + err.Error()
+			s.AuditRejected(r.Context(), p, name, body, msg)
+			writeJSON(w, http.StatusBadRequest, &service.Error{Code: service.CodeValidation, Message: msg})
 			return
 		}
 		res, err := fn(r.Context(), p, in)
@@ -78,10 +80,11 @@ func handle[In any](mux *http.ServeMux, name string, fn func(context.Context, se
 
 // decodeStrict rejects unknown fields at every nesting level (including the
 // stack), trailing data and oversize bodies. An empty body means {}.
-func decodeStrict(w http.ResponseWriter, r *http.Request, v any) error {
+// It returns the raw body for auditing.
+func decodeStrict(w http.ResponseWriter, r *http.Request, v any) ([]byte, error) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, stack.MaxRequestBytes+4096))
 	if err != nil {
-		return err
+		return body, err
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
 		body = []byte("{}")
@@ -89,12 +92,12 @@ func decodeStrict(w http.ResponseWriter, r *http.Request, v any) error {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
-		return err
+		return body, err
 	}
 	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("trailing data after JSON object")
+		return body, errors.New("trailing data after JSON object")
 	}
-	return nil
+	return body, nil
 }
 
 // StatusFor maps a service error code to an HTTP status (also used by the admin API).

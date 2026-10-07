@@ -72,10 +72,7 @@ func (a *Authenticator) fail(ip, reason string) error {
 	if a.Limiter.Blocked(ip) {
 		return ErrUnauthorized
 	}
-	log := a.Logger
-	if log == nil {
-		log = slog.Default()
-	}
+	log := a.logger()
 	if a.Limiter.Fail(ip) {
 		log.Warn("agent auth blocked: too many failures; further failures from this address are not logged",
 			"client_ip", ip, "reason", reason)
@@ -97,6 +94,7 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 				fmt.Fprintln(w, `{"code":"unauthorized","message":"unauthorized"}`)
 				return
 			}
+			a.logger().Error("agent auth error", "client_ip", ip, "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			fmt.Fprintln(w, `{"code":"internal","message":"internal error"}`)
 			return
@@ -258,4 +256,11 @@ func ReadBodyFirst(next http.Handler) http.Handler {
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (a *Authenticator) logger() *slog.Logger {
+	if a.Logger == nil {
+		return slog.Default()
+	}
+	return a.Logger
 }

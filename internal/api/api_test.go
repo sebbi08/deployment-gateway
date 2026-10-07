@@ -20,6 +20,12 @@ import (
 
 func setup(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
+	srv, tok, _ := setupWithStore(t)
+	return srv, tok
+}
+
+func setupWithStore(t *testing.T) (*httptest.Server, string, *store.Store) {
+	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(filepath.Join(t.TempDir(), "a.db"))
 	if err != nil {
@@ -41,7 +47,7 @@ func setup(t *testing.T) (*httptest.Server, string) {
 	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, time.Hour)}
 	srv := httptest.NewServer((&Handler{Svc: svc, Auth: authn}).Routes())
 	t.Cleanup(srv.Close)
-	return srv, tok
+	return srv, tok, st
 }
 
 func post(t *testing.T, srv *httptest.Server, tok, tool, body string) (int, map[string]any) {
@@ -100,5 +106,24 @@ func TestDeployViaAPI(t *testing.T) {
 	code, body = post(t, srv, tok, "delete", `{"app": "shop", "confirm": "shop"}`)
 	if code != 200 || body["deleted"] != true {
 		t.Fatalf("delete: %d %v", code, body)
+	}
+}
+
+// Calls rejected before the service (malformed or unknown fields) are
+// exactly what an admin needs to see, e.g. a prompt-injected agent probing
+// for option injection; they must leave an audit row.
+func TestRejectedCallsAreAudited(t *testing.T) {
+	srv, tok, st := setupWithStore(t)
+	code, _ := post(t, srv, tok, "deploy", `{"app":"shop","stack":{"services":{"web":{"image":"a:1","privileged":true,"environment":{"K":"secret-v"}}}}}`)
+	if code != http.StatusBadRequest {
+		t.Fatalf("status %d", code)
+	}
+	rows, err := st.ListAudit(context.Background(), store.AuditFilter{Action: "deploy"})
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("audit rows = %+v (%v)", rows, err)
+	}
+	r := rows[0]
+	if r.Result != service.CodeValidation || !strings.Contains(r.Params, "privileged") || strings.Contains(r.Params, "secret-v") || r.Workspace != "alice" {
+		t.Fatalf("audit row = %+v", r)
 	}
 }
