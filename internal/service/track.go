@@ -154,21 +154,21 @@ func marshalPlain(v any) ([]byte, error) {
 	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
+// redactEnv masks environment values at their schema path only
+// (stack.services.<svc>.environment), so service names cannot hide other
+// fields.
 func redactEnv(v any) {
-	switch n := v.(type) {
-	case map[string]any:
-		for k, child := range n {
-			if env, ok := child.(map[string]any); ok && k == "environment" {
-				for ek := range env {
-					env[ek] = "***"
-				}
-				continue
-			}
-			redactEnv(child)
+	m, _ := v.(map[string]any)
+	st, _ := m["stack"].(map[string]any)
+	services, _ := st["services"].(map[string]any)
+	for _, svc := range services {
+		sm, _ := svc.(map[string]any)
+		env, ok := sm["environment"].(map[string]any)
+		if !ok {
+			continue
 		}
-	case []any:
-		for _, c := range n {
-			redactEnv(c)
+		for k := range env {
+			env[k] = "***"
 		}
 	}
 }

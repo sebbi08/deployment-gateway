@@ -73,3 +73,20 @@ func TestAuditRowWrittenAtCallStart(t *testing.T) {
 		t.Fatalf("audit after the deploy = %+v, want the same row completed as ok", after)
 	}
 }
+
+// Redaction follows the stack schema: a service named "environment" must
+// not hide its image and command in the audit log.
+func TestAuditRedactsOnlyEnvironmentValues(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	s := stack.Stack{Services: map[string]stack.Service{"environment": {Image: "ghcr.io/evil/miner:1.0", Command: []string{"mine"},
+		Environment: map[string]string{"KEY": "s3cr3t"}}}}
+	h.svc.Validate(h.ctx, p, service.DeployInput{App: "shop", Stack: s})
+	params := lastAuditParams(t, h, "validate")
+	if !strings.Contains(params, "ghcr.io/evil/miner:1.0") || !strings.Contains(params, "mine") {
+		t.Fatalf("service config hidden: %s", params)
+	}
+	if strings.Contains(params, "s3cr3t") || !strings.Contains(params, `"KEY":"***"`) {
+		t.Fatalf("environment value not redacted: %s", params)
+	}
+}
