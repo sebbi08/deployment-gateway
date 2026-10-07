@@ -257,7 +257,7 @@ Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/outp
 | `validate` | `app`, `stack` | errors, or rendered hostnames, URLs, published ports and resource totals; starts nothing |
 | `deploy` | `app`, `stack` | per-service status, health, hostname, URL (if exposed), published ports |
 | `list` | — | apps: services, state, health, URL (if exposed), published ports, disk usage, last deploy time/result |
-| `logs` | `app`, `service`, `tail` (default 200, max 1000), `since` | combined stdout/stderr, capped at 256 KB |
+| `logs` | `app`, `service`, `tail` (default 200, max 1000), `since` | combined stdout/stderr as text (control bytes and invalid UTF-8 removed; over MCP as a single text content), capped at 256 KB |
 | `restart` | `app`, `service?` | status |
 | `stop` | `app`, `service?` | status |
 | `delete` | `app`, `confirm` (must equal `app`) | ok; removes containers, network, app folder, port claims |

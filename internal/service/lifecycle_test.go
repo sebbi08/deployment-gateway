@@ -124,3 +124,19 @@ func TestDelete(t *testing.T) {
 		t.Fatalf("containers left: %v", h.docker.Containers)
 	}
 }
+
+// Control bytes and invalid UTF-8 inflate the encoded response many times
+// over; logs keep printable text, newlines and tabs only.
+func TestLogsAreNormalised(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployExample(t, h, p)
+	h.docker.LogsOut = "a\x01b\x1b[31mred\n\xff\tok\r\n"
+	res, err := h.svc.Logs(h.ctx, p, service.LogsInput{App: "shop", Service: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "ab[31mred\n\uFFFD\tok\n"; res.Logs != want {
+		t.Fatalf("logs = %q, want %q", res.Logs, want)
+	}
+}

@@ -121,5 +121,7 @@ func StatusFor(code string) int {
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(v)
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false) // '<' would otherwise cost six bytes
+	enc.Encode(v)
 }

@@ -127,3 +127,11 @@ func TestRejectedCallsAreAudited(t *testing.T) {
 		t.Fatalf("audit row = %+v", r)
 	}
 }
+
+func TestJSONResponsesAreNotHTMLEscaped(t *testing.T) {
+	rec := httptest.NewRecorder()
+	writeJSON(rec, 200, map[string]string{"logs": "<a> & b"})
+	if !strings.Contains(rec.Body.String(), "<a> & b") {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+}

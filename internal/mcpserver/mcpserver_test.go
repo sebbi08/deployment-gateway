@@ -31,11 +31,11 @@ func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
 
 func setup(t *testing.T) (string, string) {
 	t.Helper()
-	url, tok, _ := setupWithStore(t)
+	url, tok, _, _ := setupWithStore(t)
 	return url, tok
 }
 
-func setupWithStore(t *testing.T) (string, string, *store.Store) {
+func setupWithStore(t *testing.T) (string, string, *store.Store, *servicetest.FakeDocker) {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(filepath.Join(t.TempDir(), "m.db"))
@@ -58,7 +58,7 @@ func setupWithStore(t *testing.T) (string, string, *store.Store) {
 	authn := &agentauth.Authenticator{Store: st, Limiter: auth.NewLimiter(10, time.Minute, time.Hour)}
 	srv := httptest.NewServer(Handler(New(svc, "test"), authn))
 	t.Cleanup(srv.Close)
-	return srv.URL, tok, st
+	return srv.URL, tok, st, docker
 }
 
 func connect(t *testing.T, url, token string) (*mcp.ClientSession, error) {
@@ -181,7 +181,7 @@ func TestOversizeBodyRejected(t *testing.T) {
 // The SDK rejects arguments that fail the tool's input schema before our
 // handler runs; such calls must still leave an audit row.
 func TestSchemaRejectedToolCallsAreAudited(t *testing.T) {
-	url, tok, st := setupWithStore(t)
+	url, tok, st, _ := setupWithStore(t)
 	cs, err := connect(t, url, tok)
 	if err != nil {
 		t.Fatal(err)
@@ -216,5 +216,32 @@ func TestLoopbackProxyWithPublicHost(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode == http.StatusForbidden {
 		t.Fatal("loopback request with a public Host header was rejected")
+	}
+}
+
+// Logs are sent once, as text: the SDK would otherwise add a structured copy
+// and a JSON-escaped text copy, multiplying the 256 KB cap on the wire.
+func TestLogsToolSendsLogsOnceAsText(t *testing.T) {
+	url, tok, _, docker := setupWithStore(t)
+	cs, err := connect(t, url, tok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cs.Close()
+	ctx := context.Background()
+	if _, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "deploy", Arguments: map[string]any{
+		"app": "shop", "stack": map[string]any{"services": map[string]any{"web": map[string]any{"image": "a:1"}}}}}); err != nil {
+		t.Fatal(err)
+	}
+	docker.LogsOut = strings.Repeat("<line> & more\n", 1000)
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "logs", Arguments: map[string]any{"app": "shop", "service": "web"}})
+	if err != nil || res.IsError {
+		t.Fatalf("logs: %+v %v", res, err)
+	}
+	if res.StructuredContent != nil || len(res.Content) != 1 {
+		t.Fatalf("want one text content and no structured copy, got %d contents, structured=%v", len(res.Content), res.StructuredContent != nil)
+	}
+	if tc, ok := res.Content[0].(*mcp.TextContent); !ok || tc.Text != docker.LogsOut {
+		t.Fatalf("text content differs from the logs")
 	}
 }

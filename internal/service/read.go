@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/sebbi08/deployment-gateway/internal/dockerx"
 	"github.com/sebbi08/deployment-gateway/internal/names"
@@ -139,7 +141,18 @@ func (s *Service) Logs(ctx context.Context, p Principal, in LogsInput) (res Logs
 	if err != nil {
 		return LogsResult{}, err
 	}
-	return LogsResult{App: in.App, Service: in.Service, Logs: logs}, nil
+	return LogsResult{App: in.App, Service: in.Service, Logs: printableLogs(logs)}, nil
+}
+
+// printableLogs keeps printable text, newlines and tabs: control bytes and
+// invalid UTF-8 grow many times over when encoded as JSON.
+func printableLogs(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\t' || !unicode.IsControl(r) {
+			return r
+		}
+		return -1
+	}, strings.ToValidUTF8(s, "\uFFFD"))
 }
 
 func validSince(v string) bool {

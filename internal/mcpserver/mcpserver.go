@@ -48,10 +48,21 @@ func New(svc *service.Service, version string) *mcp.Server {
 		func(ctx context.Context, p service.Principal, _ service.NoInput) (service.ListResult, error) {
 			return svc.List(ctx, p)
 		})
-	addTool(s, &mcp.Tool{Name: "logs", Description: "Recent logs of one service of one of your apps.",
+	// The logs are returned once, as text content: a typed result would be
+	// sent both as structured content and as escaped JSON text.
+	mcp.AddTool(s, &mcp.Tool{Name: "logs", Description: "Recent logs of one service of one of your apps, as plain text.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true}},
-		func(ctx context.Context, p service.Principal, in service.LogsInput) (service.LogsResult, error) {
-			return svc.Logs(ctx, p, in)
+		func(ctx context.Context, req *mcp.CallToolRequest, in service.LogsInput) (*mcp.CallToolResult, any, error) {
+			markRan(ctx)
+			p, err := principal(req)
+			if err != nil {
+				return nil, nil, err
+			}
+			res, err := svc.Logs(ctx, p, in)
+			if err != nil {
+				return nil, nil, toolError(err)
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: res.Logs}}}, nil, nil
 		})
 	addTool(s, &mcp.Tool{Name: "restart", Description: "Restart one service, or all services of an app when service is empty."},
 		func(ctx context.Context, p service.Principal, in service.ServiceInput) (service.AppStatus, error) {
@@ -71,9 +82,7 @@ func New(svc *service.Service, version string) *mcp.Server {
 
 func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, fn func(context.Context, service.Principal, In) (Out, error)) {
 	mcp.AddTool(s, t, func(ctx context.Context, req *mcp.CallToolRequest, in In) (*mcp.CallToolResult, Out, error) {
-		if ran, ok := ctx.Value(ranKey{}).(*bool); ok {
-			*ran = true // the service audits the call from here on
-		}
+		markRan(ctx)
 		var zero Out
 		p, err := principal(req)
 		if err != nil {
@@ -88,6 +97,14 @@ func addTool[In, Out any](s *mcp.Server, t *mcp.Tool, fn func(context.Context, s
 }
 
 type ranKey struct{}
+
+// markRan tells auditRejected that the tool handler ran; the service audits
+// the call from here on.
+func markRan(ctx context.Context) {
+	if ran, ok := ctx.Value(ranKey{}).(*bool); ok {
+		*ran = true
+	}
+}
 
 // auditRejected writes an audit row for tool calls the SDK rejects before
 // the tool handler runs (input schema violations, malformed arguments,
