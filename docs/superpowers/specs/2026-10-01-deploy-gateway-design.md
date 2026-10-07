@@ -35,7 +35,7 @@ Git/Dockerfile builds (agents build images in their own CI/CD), image allowlists
 | Language | Go (official Docker SDK, official MCP Go SDK `github.com/modelcontextprotocol/go-sdk`) |
 | MCP transport | Streamable HTTP behind the reverse proxy, `Authorization: Bearer <token>` |
 | Agent input model | JSON object shaped like a strict compose subset; parsed with unknown-field rejection; re-rendered by the gateway |
-| Execution | Gateway renders `docker-compose.yml` into the app folder and runs the standalone `docker compose` v2 binary with fixed argv |
+| Execution | Gateway renders `docker-compose.yml` into the app folder and runs the standalone `docker compose` binary (v5) with fixed argv |
 | Folder model | Managed workspaces under `WORKSPACES_ROOT`; admin chooses the workspace name only |
 | Volumes | Bind mounts only, always under `<WORKSPACES_ROOT>/<ws>/<app>/data/<svc>/`; no named volumes. Anonymous volumes from an image's `VOLUME` are allowed; the gateway removes them on app delete, workspace delete, orphan removal and when a redeploy stops mounting them |
 | Images | Unrestricted; explicit tag or digest required, `:latest` rejected; always pulled on deploy |
@@ -264,7 +264,7 @@ Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/outp
 | `stop` | `app`, `service?` | status |
 | `delete` | `app`, `confirm` (must equal `app`) | ok; removes containers, network, app folder, port claims |
 
-Ownership on every call: workspace comes only from the token (DB lookup); the app must exist in the workspace's DB records and folder; affected containers are found by Docker label filter `deploy-gateway.workspace=<ws>,deploy-gateway.app=<app>`. A request for an app in another workspace returns `not_found` (indistinguishable from nonexistent).
+Ownership on every call: workspace comes only from the token (DB lookup); the app must exist in the workspace's DB records; affected containers are found by Docker label filter `deploy-gateway.workspace=<ws>,deploy-gateway.app=<app>`. A request for an app in another workspace returns `not_found` (indistinguishable from nonexistent).
 
 Error codes: `unauthorized`, `validation_failed`, `quota_exceeded`, `port_taken`, `not_found`, `conflict` (app locked), `deploy_failed`, `security_violation`, `too_many_requests` (HTTP 429: more than 8 concurrent calls, or more than a burst of 30 calls refilled at 5 per second, with one token), `internal`. Docker/compose output to agents is sanitized (truncated, no host paths outside the workspace); the full output goes to the audit log.
 
@@ -273,7 +273,7 @@ Error codes: `unauthorized`, `validation_failed`, `quota_exceeded`, `port_taken`
 ### Agent tokens
 
 - Format `dgw_<43 chars base64url>` (256 bits). Shown once at creation.
-- Stored as SHA-256 hash plus an 8-char display prefix. Lookup by hash; constant-time compare.
+- Stored as SHA-256 hash plus a 12-char display prefix (`dgw_` + 8 characters). Lookup by hash (an indexed equality lookup on the SHA-256 of a 256-bit token, so no timing side channel is useful); every call also re-checks that the token is unrevoked and the workspace unchanged.
 - Multiple tokens per workspace; revocable; `last_used_at` tracked.
 - Failed auth: uniform 401; per-IP rate limit (10 failures within 1 min → 15 min block). The block applies to failing attempts only: a valid token is always accepted, because the client IP may be a shared proxy address. Failures and the start of a block are logged with the client IP.
 - Client IP from `X-Forwarded-For` only if the direct peer is in `TRUSTED_PROXIES`.
@@ -338,7 +338,7 @@ All admin actions are audited with `actor_type=admin`.
 workspaces(id, name UNIQUE, created_at,
            max_apps, max_services_per_app, max_total_memory_mb, max_total_cpus,
            default_memory_mb, max_memory_mb, default_cpus, max_cpus, default_pids, max_pids,
-           port_range_start NULL, port_range_end NULL, port_bind_ip)
+           port_range_start NOT NULL DEFAULT 0, port_range_end NOT NULL DEFAULT 0 (0 = no range), port_bind_ip)
 tokens(id, workspace_id FK, label, hash UNIQUE, prefix, created_at, last_used_at, revoked_at)
 templates(id, name UNIQUE, description, host_pattern, networks_json, labels_json, created_at, updated_at)
 workspace_templates(workspace_id FK, template_id FK, PRIMARY KEY(workspace_id, template_id))
@@ -366,6 +366,8 @@ Audit params redact environment **values** (`***`); keys are kept. Params are st
 | `TRUSTED_PROXIES` | empty | for agent client IP extraction |
 | `DOCKER_CONFIG` | `/docker` | contains host `config.json` |
 | `COMPOSE_BIN` | `/usr/local/bin/docker-compose` | |
+| `DOCKER_HOST` | `unix:///var/run/docker.sock` | Docker endpoint used by the gateway and passed to compose |
+| `SELF_CONTAINER_ID` | empty | name or ID of the gateway's own container; needed only with a custom `hostname:` (startup mount check) |
 | `DEPLOY_TIMEOUT` | `300s` | |
 | `DEPLOY_CONCURRENCY` | `1` | env only |
 | `FILE_OWNER` | empty | optional numeric `uid:gid`; group `gid` gets read access to gateway-managed folders and compose files (owner stays root) |
@@ -373,7 +375,7 @@ Audit params redact environment **values** (`***`); keys are kept. Params are st
 
 ## 17. Deployment
 
-- Image: multi-stage; `node` stage builds `web/` (`npm ci && npm run build`) → `golang` stage builds the binary with the embedded UI → `gcr.io/distroless/static` + gateway binary + standalone `docker-compose` v2 binary (pinned version, SHA-256 verified).
+- Image: multi-stage; `node` stage builds `web/` (`npm ci && npm run build`) → `golang` stage builds the binary with the embedded UI → `gcr.io/distroless/static` + gateway binary + standalone `docker-compose` v5 binary (pinned version, SHA-256 verified).
 - Example stack `deploy/docker-compose.yml` (pinned image tag, `container_name: deploy-gateway`, `restart: unless-stopped`):
   - mounts: `/var/run/docker.sock`, `./data:/data`, `<abs>/workspaces:<abs>/workspaces`, `~/.docker/config.json:/docker/config.json:ro`
   - `cap_drop: [ALL]`, `cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]`, `read_only: true`, `tmpfs: /tmp`, `no-new-privileges:true`
