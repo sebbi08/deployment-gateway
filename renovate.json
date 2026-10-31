@@ -1,0 +1,20 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": true,
+  "automerge": false,
+  "lockFileMaintenance": { "enabled": false },
+  "packageRules": [
+    { "description": "Nie automatisch mergen", "matchPackageNames": ["*"], "automerge": false }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Docker-Compose-Standalone-Binary im Dockerfile (Checksummen muessen manuell nachgezogen werden)",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": ["ARG COMPOSE_VERSION=(?<currentValue>\\S+)"],
+      "depNameTemplate": "docker/compose",
+      "datasourceTemplate": "github-releases"
+    }
+  ]
+}
