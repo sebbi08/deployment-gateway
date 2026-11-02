@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 # Changing the version requires updating both checksums below.
-ARG COMPOSE_VERSION=v5.5.1
+ARG COMPOSE_VERSION=v5.6.1
 
 FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d AS web
 WORKDIR /src/web
@@ -22,11 +22,11 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X main.version=${VERSION}"
 # release's docker-compose-linux-<arch>.sha256 files.
 FROM scratch AS compose-amd64
 ARG COMPOSE_VERSION
-ADD --chmod=0755 --checksum=sha256:db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576 https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64 /docker-compose
+ADD --chmod=0755 --checksum=sha256:47737f4236e6d3ccea7291995203f8f018058783b4c3a9469119811a0b5db8c0 https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64 /docker-compose
 
 FROM scratch AS compose-arm64
 ARG COMPOSE_VERSION
-ADD --chmod=0755 --checksum=sha256:732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7 https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-aarch64 /docker-compose
+ADD --chmod=0755 --checksum=sha256:42cfa75f51ad0ccf290bad37899e0038a8c10a0069e85233ecc1d53e3ff1347d https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-aarch64 /docker-compose
 
 FROM compose-${TARGETARCH} AS compose
 
