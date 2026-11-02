@@ -14,7 +14,7 @@
     "@mantine/form": "9.7.4",
     "@mantine/hooks": "9.7.4",
     "@mantine/notifications": "9.7.4",
-    "@tanstack/react-query": "5.104.0",
+    "@tanstack/react-query": "5.105.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-router": "8.5.1"
