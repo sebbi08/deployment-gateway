@@ -3,9 +3,46 @@
   "extends": ["config:recommended"],
   "dependencyDashboard": true,
   "automerge": false,
+  "platformAutomerge": false,
+  "minimumReleaseAge": "3 days",
   "lockFileMaintenance": { "enabled": false },
   "packageRules": [
-    { "description": "Nie automatisch mergen", "matchPackageNames": ["*"], "automerge": false }
+    {
+      "description": "Patch- und Pin-Updates gesammelt in einem PR. Renovate mergt ihn selbst, sobald alle CI-Checks grün sind; ohne Checks wird nicht gemergt.",
+      "matchUpdateTypes": ["patch", "pin"],
+      "groupName": "Patch-Updates",
+      "groupSlug": "patch-updates",
+      "automerge": true
+    },
+    {
+      "description": "Docker-Digest-Updates (gleiches Tag, neu gebautes Image) haben kein Release-Datum. Damit sie trotz minimumReleaseAge kommen, ohne Altersprüfung, dafür in eigenem PR und nie automatisch gemergt.",
+      "matchUpdateTypes": ["digest", "pinDigest"],
+      "groupName": "Digest-Updates",
+      "groupSlug": "digest-updates",
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false
+    },
+    {
+      "description": "Minor-Updates gesammelt in einem PR, manuell mergen. 0.x-Pakete ausgenommen: dort sind Minor-Sprünge oft breaking, sie bekommen eigene PRs.",
+      "matchUpdateTypes": ["minor"],
+      "matchCurrentVersion": "!/^v?0\\./",
+      "groupName": "Minor-Updates",
+      "groupSlug": "minor-updates"
+    },
+    {
+      "description": "Docker-Images außerhalb von Docker Hub (z. B. mcr.microsoft.com, ghcr.io) haben in Renovate kein Release-Datum. Damit ihre Updates trotz minimumReleaseAge kommen: ohne Altersprüfung, dafür nie automatisch gemergt.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["/^[^/]+\\.[^/]+\\//", "!docker.io/**"],
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false
+    },
+    {
+      "description": "docker/compose: Renovate hebt nur COMPOSE_VERSION an, nicht die SHA256-Checksummen, und die CI baut kein Image. Deshalb eigener PR, nie automatisch mergen.",
+      "matchPackageNames": ["docker/compose"],
+      "groupName": "docker/compose",
+      "groupSlug": "docker-compose",
+      "automerge": false
+    }
   ],
   "customManagers": [
     {
