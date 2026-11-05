@@ -6,6 +6,7 @@
   "platformAutomerge": false,
   "minimumReleaseAge": "3 days",
   "internalChecksFilter": "strict",
+  "prCreation": "not-pending",
   "lockFileMaintenance": { "enabled": false },
   "packageRules": [
     {
