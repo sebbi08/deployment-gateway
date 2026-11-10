@@ -1,12 +1,14 @@
 name: CI
 
-# Runs the Go and frontend checks on every pull request and on pushes to main.
+# Runs the Go and frontend checks on every pull request and on pushes to main
+# and to renovate/** (Renovate only opens a PR once its branch has checks, see
+# prCreation: not-pending).
 # Docker-backed integration tests (-tags integration) need a Docker daemon and
 # docker-compose and are not run here.
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, "renovate/**"]
 
 concurrency:
   group: ci-${{ github.ref }}
