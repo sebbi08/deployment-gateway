@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"testing"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/sebbi08/deployment-gateway/internal/stack"
 	"github.com/sebbi08/deployment-gateway/internal/tmpl"
