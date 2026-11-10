@@ -6,7 +6,7 @@ import (
 	"slices"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // qstr is an agent- or template-supplied string. It is always emitted as a
