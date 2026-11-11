@@ -8,3 +8,4 @@
 /internal/webui/dist/*
 !/internal/webui/dist/.keep
 /web/node_modules/
+.superpowers/

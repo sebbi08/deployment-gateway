@@ -160,3 +160,28 @@ export interface Orphan {
   state: string;
   status: string;
 }
+
+export type FileType = "dir" | "file" | "symlink" | "fifo" | "socket" | "device" | "other";
+
+export interface FileEntry {
+  name: string;
+  type: FileType;
+  size: number;
+  mod_time: string;
+  target?: string;
+}
+
+export interface FileListing {
+  path: string;
+  entries: FileEntry[];
+  more: number;
+}
+
+export interface FileContent {
+  path: string;
+  size: number;
+  mod_time: string;
+  binary: boolean;
+  truncated: boolean;
+  text: string;
+}

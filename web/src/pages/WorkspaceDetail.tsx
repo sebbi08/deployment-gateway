@@ -9,6 +9,7 @@ import { api } from "../api";
 import { AgentPrompt } from "../components/AgentPrompt";
 import { ConfirmDelete } from "../components/ConfirmDelete";
 import { ErrorAlert } from "../components/ErrorAlert";
+import { FileExplorer } from "../components/FileExplorer";
 import { PortFields } from "../components/PortFields";
 import { QuotaFields } from "../components/QuotaFields";
 import type { AppView, WorkspaceDetail as Detail } from "../types";
@@ -341,6 +342,7 @@ export function WorkspaceDetail() {
       <Tabs defaultValue="apps" keepMounted={false}>
         <Tabs.List>
           <Tabs.Tab value="apps">Apps ({ws.apps.length})</Tabs.Tab>
+          <Tabs.Tab value="files">Files</Tabs.Tab>
           <Tabs.Tab value="tokens">Tokens</Tabs.Tab>
           <Tabs.Tab value="agent">Agent setup</Tabs.Tab>
           <Tabs.Tab value="templates">Templates</Tabs.Tab>
@@ -351,6 +353,9 @@ export function WorkspaceDetail() {
         </Tabs.List>
         <Tabs.Panel value="apps" pt="md">
           <AppsTab ws={ws} />
+        </Tabs.Panel>
+        <Tabs.Panel value="files" pt="md">
+          <FileExplorer workspace={ws.name} />
         </Tabs.Panel>
         <Tabs.Panel value="tokens" pt="md">
           <TokensTab ws={ws} />
