@@ -1,5 +1,5 @@
 import type {
-  AuditFilter, AuditPage, Dashboard, FieldError, Me, Orphan, PortSettings, Preview, Quota,
+  AuditFilter, AuditPage, Dashboard, FieldError, FileContent, FileListing, Me, Orphan, PortSettings, Preview, Quota,
   Settings, StoredTemplate, Template, WorkspaceDetail, WorkspaceRow,
 } from "./types";
 
@@ -63,6 +63,10 @@ export const api = {
   stopApp: (name: string, app: string) => request<void>("POST", `/workspaces/${enc(name)}/apps/${enc(app)}/stop`),
   deleteApp: (name: string, app: string, confirm: string) =>
     request<void>("DELETE", `/workspaces/${enc(name)}/apps/${enc(app)}`, { confirm }),
+  listFiles: (name: string, path: string) =>
+    request<FileListing>("GET", `/workspaces/${enc(name)}/files?path=${enc(path)}`),
+  fileContent: (name: string, path: string) =>
+    request<FileContent>("GET", `/workspaces/${enc(name)}/files/content?path=${enc(path)}`),
 
   templates: () => request<StoredTemplate[]>("GET", "/templates"),
   template: (id: number) => request<StoredTemplate>("GET", `/templates/${id}`),

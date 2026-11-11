@@ -151,3 +151,13 @@ test("a double click on Revoke sends one request", async () => {
   await new Promise((r) => setTimeout(r, 100));
   expect(calls.filter((c) => c.method === "POST" && c.path.endsWith("/revoke"))).toHaveLength(1);
 });
+
+test("the files tab shows the workspace folder", async () => {
+  mockApi({
+    "GET /workspaces/alice": { body: detail },
+    "GET /workspaces/alice/files": { body: { path: "", more: 0, entries: [{ name: "shop", type: "dir", size: 4096, mod_time: "2026-11-10T14:02:00Z" }] } },
+  });
+  renderDetail();
+  await userEvent.click(await screen.findByRole("tab", { name: "Files" }));
+  expect(await screen.findByRole("button", { name: /shop/ })).toBeInTheDocument();
+});

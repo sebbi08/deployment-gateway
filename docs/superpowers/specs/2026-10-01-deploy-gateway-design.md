@@ -295,7 +295,7 @@ A React single-page app served by the admin listener only. It talks exclusively 
   - **Login** (password mode only).
   - **Dashboard:** usage per workspace, recent critical audit events, orphan banner.
   - **Workspaces:** table plus "New workspace" modal (name, quota, published port range, bind IP).
-  - **Workspace detail** (tabs): *Apps* (state, health, URLs, ports, disk usage, stop, delete with type-to-confirm), *Tokens* (create, revoke, last used; a new token is shown exactly once in a modal with a copy button), *Templates* (grant checkboxes), *Quota & ports*, *Danger zone* (delete workspace with type-to-confirm: compose down all apps, revoke tokens, release port claims, remove folder).
+  - **Workspace detail** (tabs): *Apps* (state, health, URLs, ports, disk usage, stop, delete with type-to-confirm), *Files* (read-only explorer of the workspace folder — compose files and `data/` — with a text viewer; see below), *Tokens* (create, revoke, last used; a new token is shown exactly once in a modal with a copy button), *Templates* (grant checkboxes), *Quota & ports*, *Danger zone* (delete workspace with type-to-confirm: compose down all apps, revoke tokens, release port claims, remove folder).
   - **Templates:** list and editor with **live preview** while typing (debounced call to the preview endpoint: validation errors, example hosts, rendered labels).
   - **Audit log:** filters (workspace, action, result, severity), cursor pagination, params JSON viewer.
   - **Settings:** default quota for new workspaces, audit retention days.
@@ -313,6 +313,7 @@ A React single-page app served by the admin listener only. It talks exclusively 
 | `PUT workspaces/{name}/grants` | set granted template IDs |
 | `POST workspaces/{name}/tokens`, `POST workspaces/{name}/tokens/{id}/revoke` | create (token returned once) / revoke |
 | `POST workspaces/{name}/apps/{app}/stop`, `DELETE workspaces/{name}/apps/{app}` | stop / delete (`{"confirm": app}`) |
+| `GET workspaces/{name}/files?path=`, `GET workspaces/{name}/files/content?path=` | read-only file explorer: one directory level (≤ 500 entries, directories first, `more` counts the rest) / one regular file (≤ 512 KB, `truncated` flag; NUL bytes or invalid UTF-8 → `binary`, no content). `data/` is written by agent containers, so every path is walked component by component with `openat(O_NOFOLLOW)` from the workspace folder: `..`, empty and absolute paths are rejected, symlinks are listed with their target text but never followed (not even inside the workspace), FIFOs/sockets/devices are listed but never opened, and the type is checked before and after opening. Not audited, like other admin reads |
 | `GET`, `POST templates`, `GET`, `PUT`, `DELETE templates/{id}` | template CRUD (save-time checks and hostname-uniqueness validation from §8) |
 | `POST templates/preview` | validate and render sample values; never saves |
 | `GET audit` | filters + `before` cursor |
