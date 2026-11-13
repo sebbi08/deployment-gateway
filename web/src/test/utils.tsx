@@ -1,4 +1,4 @@
-import { MantineProvider } from "@mantine/core";
+import { MantineProvider, type MantineThemeOverride } from "@mantine/core";
 import { Notifications } from "@mantine/notifications";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
@@ -9,10 +9,10 @@ import { createQueryClient } from "../App";
 import { theme } from "../theme";
 import type { Quota } from "../types";
 
-export function renderWithProviders(ui: ReactElement, route = "/") {
+export function renderWithProviders(ui: ReactElement, route = "/", providerTheme: MantineThemeOverride = theme) {
   const queryClient = createQueryClient({ retry: false });
   return render(
-    <MantineProvider theme={theme} env="test">
+    <MantineProvider theme={providerTheme} env="test">
       <Notifications />
       <QueryClientProvider client={queryClient}>
         <MemoryRouter initialEntries={[route]}>{ui}</MemoryRouter>
