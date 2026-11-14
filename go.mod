@@ -8,7 +8,7 @@ require (
 	github.com/moby/moby/client v0.6.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	go.yaml.in/yaml/v4 v4.0.0
-	golang.org/x/crypto v0.58.0
+	golang.org/x/crypto v0.59.0
 	golang.org/x/sys v0.50.0
 	modernc.org/sqlite v1.62.0
 )
