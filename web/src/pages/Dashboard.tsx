@@ -44,6 +44,7 @@ export function Dashboard() {
   if (q.isPending) return <Loader />;
   if (q.isError) return <ErrorAlert error={q.error} />;
   const d = q.data;
+  const firstRequested = d.workspaces.find((w) => w.requested_secrets > 0);
   return (
     <Stack>
       <Title order={2}>Dashboard</Title>
@@ -53,6 +54,19 @@ export function Dashboard() {
           <Anchor component={Link} to="/orphans">
             Review them
           </Anchor>
+        </Alert>
+      )}
+      {d.requested_secrets > 0 && (
+        <Alert color="yellow" title="Secrets requested">
+          {d.requested_secrets} requested secret{d.requested_secrets === 1 ? "" : "s"} waiting for a value
+          {firstRequested && (
+            <>
+              :{" "}
+              <Anchor component={Link} to={`/workspaces/${firstRequested.name}`}>
+                {firstRequested.name}
+              </Anchor>
+            </>
+          )}
         </Alert>
       )}
       {d.workspaces.length === 0 ? (

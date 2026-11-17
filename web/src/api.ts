@@ -1,6 +1,6 @@
 import type {
   AuditFilter, AuditPage, Dashboard, FieldError, FileContent, FileListing, Me, Orphan, PortSettings, Preview, Quota,
-  Settings, StoredTemplate, Template, WorkspaceDetail, WorkspaceRow,
+  SecretView, Settings, StoredTemplate, Template, WorkspaceDetail, WorkspaceRow,
 } from "./types";
 
 export class ApiError extends Error {
@@ -67,6 +67,15 @@ export const api = {
     request<FileListing>("GET", `/workspaces/${enc(name)}/files?path=${enc(path)}`),
   fileContent: (name: string, path: string) =>
     request<FileContent>("GET", `/workspaces/${enc(name)}/files/content?path=${enc(path)}`),
+
+  secrets: (ws: string) => request<SecretView[]>("GET", `/workspaces/${enc(ws)}/secrets`),
+  createSecret: (ws: string, name: string, value: string) =>
+    request<void>("POST", `/workspaces/${enc(ws)}/secrets`, { name, value }),
+  setSecret: (ws: string, name: string, value: string) =>
+    request<{ apps: string[] }>("PUT", `/workspaces/${enc(ws)}/secrets/${enc(name)}`, { value }),
+  reapplySecret: (ws: string, name: string) =>
+    request<{ apps: string[] }>("POST", `/workspaces/${enc(ws)}/secrets/${enc(name)}/apply`),
+  deleteSecret: (ws: string, name: string) => request<void>("DELETE", `/workspaces/${enc(ws)}/secrets/${enc(name)}`),
 
   templates: () => request<StoredTemplate[]>("GET", "/templates"),
   template: (id: number) => request<StoredTemplate>("GET", `/templates/${id}`),
