@@ -130,10 +130,8 @@ func (s *Service) ensureEnvFiles(ws, app string, st *stack.Stack) error {
 // would inject another variable.
 func (s *Service) writeEnvFiles(ws, app string, pl *planned) error {
 	for _, svc := range slices.Sorted(maps.Keys(pl.secretValues)) {
-		for _, key := range slices.Sorted(maps.Keys(pl.secretValues[svc])) {
-			if strings.ContainsAny(pl.secretValues[svc][key], "\x00\r\n") {
-				return fmt.Errorf("secret value for services.%s.secrets.%s contains NUL, CR or LF; refusing to write the env file", svc, key)
-			}
+		if err := checkEnvValues(svc, pl.secretValues[svc]); err != nil {
+			return err
 		}
 	}
 	dir := s.secretsDir(ws, app)
@@ -145,9 +143,8 @@ func (s *Service) writeEnvFiles(ws, app string, pl *planned) error {
 		if len(values) == 0 {
 			continue
 		}
-		path := render.EnvFilePath(dir, svc)
-		want[filepath.Base(path)] = true
-		if err := writePrivateFile(dir, path, render.EnvFile(values)); err != nil {
+		want[filepath.Base(render.EnvFilePath(dir, svc))] = true
+		if err := s.writeEnvFile(ws, app, svc, values); err != nil {
 			return err
 		}
 	}
@@ -164,6 +161,32 @@ func (s *Service) writeEnvFiles(ws, app string, pl *planned) error {
 		}
 	}
 	return syncDir(dir)
+}
+
+// writeEnvFile atomically replaces the env file of one service (temp file,
+// fsync, rename; the caller syncs the folder). Deploys write every service's
+// file through writeEnvFiles; secret applies rewrite only the services that
+// use a changed secret.
+func (s *Service) writeEnvFile(ws, app, svc string, values map[string]string) error {
+	if err := checkEnvValues(svc, values); err != nil {
+		return err
+	}
+	dir := s.secretsDir(ws, app)
+	if err := ensurePrivateDir(dir); err != nil {
+		return err
+	}
+	return writePrivateFile(dir, render.EnvFilePath(dir, svc), render.EnvFile(values))
+}
+
+// checkEnvValues refuses values containing NUL, CR or LF: with format: raw a
+// line break would inject another variable. The error names the key only.
+func checkEnvValues(svc string, values map[string]string) error {
+	for _, key := range slices.Sorted(maps.Keys(values)) {
+		if strings.ContainsAny(values[key], "\x00\r\n") {
+			return fmt.Errorf("secret value for services.%s.secrets.%s contains NUL, CR or LF; refusing to write the env file", svc, key)
+		}
+	}
+	return nil
 }
 
 // ensurePrivateDir creates dir as 0700 and resets its mode if it exists.

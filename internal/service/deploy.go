@@ -84,30 +84,14 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	out, upErr := s.Compose.Up(bg, file, project)
 	// Layer 3 runs even when up failed: --wait can fail while containers exist.
 	if violations := s.runtimeCheck(bg, ws.Name, app, pl, upStarted); len(violations) > 0 {
-		detail := strings.Join(violations, "; ")
-		msg := "deployment rejected by runtime security check; containers were removed"
-		// Remove the containers right away: compose down waits for the global
-		// compose slot, possibly behind other tenants' operations.
-		maps.Copy(volsBefore, s.appVolumes(bg, ws.Name, app))
-		removeErr := s.removeAppContainers(bg, ws.Name, app)
-		if removeErr != nil {
-			detail += " | direct container removal failed: " + removeErr.Error()
-		}
-		downOut, downErr := s.Compose.Down(bg, file, project)
-		if downErr != nil {
-			detail += " | compose down failed: " + downErr.Error()
-			if removeErr != nil {
-				msg = "deployment rejected by runtime security check; removing containers failed - an administrator must intervene"
-			}
-		}
-		s.removeVolumes(bg, volsBefore, nil)
+		err := s.rejectRuntime(bg, ws, app, violations, volsBefore, "deployment")
 		_ = s.Store.RecordDeploy(bg, appRec.ID, CodeSecurity)
-		return AppStatus{}, &Error{Code: CodeSecurity, Message: msg, detail: s.masker(bg, ws.ID)(detail + " | " + downOut), critical: true}
+		return AppStatus{}, err
 	}
 	if upErr == nil {
 		// Do not trust compose's exit code alone: --wait can return 0 while a
 		// service is still starting, unhealthy or restarting.
-		if problems := s.unhealthyServices(bg, ws.Name, app, pl); len(problems) > 0 {
+		if problems := s.unhealthyServices(bg, ws.Name, app, stack.ServiceNames(pl.stack), pl.healthchecks); len(problems) > 0 {
 			upErr = errors.New("services not running and healthy after up: " + strings.Join(problems, "; "))
 		}
 	}
@@ -137,10 +121,35 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	return res, nil
 }
 
-// unhealthyServices lists planned services without a running container, or
-// whose health is not "healthy" (when the stack defines a healthcheck) or is
-// "starting"/"unhealthy" (a healthcheck from the image).
-func (s *Service) unhealthyServices(ctx context.Context, ws, app string, pl *planned) []string {
+// rejectRuntime handles a runtime security violation (layer 3): it removes
+// every container of the app and its anonymous volumes and returns the
+// critical error. what names the operation ("deployment", "secret update").
+func (s *Service) rejectRuntime(ctx context.Context, ws store.Workspace, app string, violations []string, volsBefore map[string]bool, what string) error {
+	file, project := s.composeFile(ws.Name, app), names.Project(ws.Name, app)
+	detail := strings.Join(violations, "; ")
+	msg := what + " rejected by runtime security check; containers were removed"
+	// Remove the containers right away: compose down waits for the global
+	// compose slot, possibly behind other tenants' operations.
+	maps.Copy(volsBefore, s.appVolumes(ctx, ws.Name, app))
+	removeErr := s.removeAppContainers(ctx, ws.Name, app)
+	if removeErr != nil {
+		detail += " | direct container removal failed: " + removeErr.Error()
+	}
+	downOut, downErr := s.Compose.Down(ctx, file, project)
+	if downErr != nil {
+		detail += " | compose down failed: " + downErr.Error()
+		if removeErr != nil {
+			msg = what + " rejected by runtime security check; removing containers failed - an administrator must intervene"
+		}
+	}
+	s.removeVolumes(ctx, volsBefore, nil)
+	return &Error{Code: CodeSecurity, Message: msg, detail: s.masker(ctx, ws.ID)(detail + " | " + downOut), critical: true}
+}
+
+// unhealthyServices lists the given services without a running container,
+// or whose health is not "healthy" (when healthchecks says the stack defines
+// one) or is "starting"/"unhealthy" (a healthcheck from the image).
+func (s *Service) unhealthyServices(ctx context.Context, ws, app string, services []string, healthchecks map[string]bool) []string {
 	containers, err := s.Docker.ProjectContainers(ctx, ws, app)
 	if err != nil {
 		return []string{"cannot list containers: " + err.Error()}
@@ -150,7 +159,7 @@ func (s *Service) unhealthyServices(ctx context.Context, ws, app string, pl *pla
 		bySvc[c.Labels[names.LabelService]] = c
 	}
 	var problems []string
-	for _, svc := range stack.ServiceNames(pl.stack) {
+	for _, svc := range services {
 		c, ok := bySvc[svc]
 		switch {
 		case !ok:
@@ -159,7 +168,7 @@ func (s *Service) unhealthyServices(ctx context.Context, ws, app string, pl *pla
 			problems = append(problems, fmt.Sprintf("%s: state %s", svc, c.State))
 		case c.Health == "starting" || c.Health == "unhealthy":
 			problems = append(problems, fmt.Sprintf("%s: health %s", svc, c.Health))
-		case pl.stack.Services[svc].Healthcheck != nil && c.Health != "healthy":
+		case healthchecks[svc] && c.Health != "healthy":
 			problems = append(problems, fmt.Sprintf("%s: health %q, want healthy", svc, c.Health))
 		}
 	}

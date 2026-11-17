@@ -285,58 +285,15 @@ func projectParts(project string) (ws, app string) {
 
 // Wire makes compose operations act on the fake Docker state.
 func Wire(c *FakeCompose, d *FakeDocker) {
-	c.OnUp = func(file, project string) error {
-		raw, err := os.ReadFile(file)
-		if err != nil {
-			return err
+	c.OnUp = func(file, project string) error { return d.create(file, project, nil) }
+	// Recreate replaces only the selected services' containers; the others
+	// keep running untouched.
+	c.OnRecreate = func(file, project string, services []string) error {
+		only := map[string]bool{}
+		for _, s := range services {
+			only[s] = true
 		}
-		var doc renderedFile
-		if err := yaml.Unmarshal(raw, &doc); err != nil {
-			return err
-		}
-		ws, app := projectParts(project)
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		for id, ci := range d.Containers { // --remove-orphans
-			if ci.Labels[names.LabelWorkspace] == ws && ci.Labels[names.LabelApp] == app {
-				if _, keep := doc.Services[id]; !keep {
-					delete(d.Containers, id)
-					delete(d.Facts, id)
-				}
-			}
-		}
-		for key, s := range doc.Services {
-			health := ""
-			if s.Healthcheck != nil {
-				health = "healthy"
-			}
-			// Docker merges image labels under the configured ones; compose
-			// adds its own com.docker.compose.* labels.
-			labels := maps.Clone(d.Images[s.Image])
-			if labels == nil {
-				labels = map[string]string{}
-			}
-			for k, v := range s.Labels { // compose removes $$ escaping
-				labels[k] = strings.ReplaceAll(v, "$$", "$")
-			}
-			labels["com.docker.compose.project"] = project
-			labels["com.docker.compose.service"] = key
-			f := dockerx.Facts{
-				Name: key, Labels: labels, CapDrop: []string{"ALL"}, SecurityOpt: []string{"no-new-privileges:true"},
-				NetworkMode: s.Networks[0], IpcMode: "private", Memory: s.MemLimit, PidsLimit: s.PidsLimit,
-				State: "running", Health: health,
-			}
-			for _, v := range s.Volumes {
-				f.Mounts = append(f.Mounts, dockerx.MountFact{Type: v.Type, Source: v.Source, Destination: v.Target})
-			}
-			for _, p := range s.Ports {
-				hp, _ := strconv.Atoi(p.Published)
-				f.PortBindings = append(f.PortBindings, dockerx.PortFact{ContainerPort: p.Target, Protocol: p.Protocol, HostIP: p.HostIP, HostPort: hp})
-			}
-			d.Containers[key] = dockerx.ContainerInfo{ID: key, Name: key, Labels: labels, State: "running", Status: "Up", Health: health, Created: time.Now()}
-			d.Facts[key] = f
-		}
-		return nil
+		return d.create(file, project, only)
 	}
 	setState := func(project, service, state string) {
 		ws, app := projectParts(project)
@@ -362,6 +319,65 @@ func Wire(c *FakeCompose, d *FakeDocker) {
 			}
 		}
 	}
+}
+
+// create makes containers for the services of a rendered compose file: all
+// of them, removing orphans, when only is nil, else only the listed keys.
+func (d *FakeDocker) create(file, project string, only map[string]bool) error {
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		return err
+	}
+	var doc renderedFile
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
+	ws, app := projectParts(project)
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for id, ci := range d.Containers { // --remove-orphans
+		if only == nil && ci.Labels[names.LabelWorkspace] == ws && ci.Labels[names.LabelApp] == app {
+			if _, keep := doc.Services[id]; !keep {
+				delete(d.Containers, id)
+				delete(d.Facts, id)
+			}
+		}
+	}
+	for key, s := range doc.Services {
+		if only != nil && !only[key] {
+			continue
+		}
+		health := ""
+		if s.Healthcheck != nil {
+			health = "healthy"
+		}
+		// Docker merges image labels under the configured ones; compose
+		// adds its own com.docker.compose.* labels.
+		labels := maps.Clone(d.Images[s.Image])
+		if labels == nil {
+			labels = map[string]string{}
+		}
+		for k, v := range s.Labels { // compose removes $$ escaping
+			labels[k] = strings.ReplaceAll(v, "$$", "$")
+		}
+		labels["com.docker.compose.project"] = project
+		labels["com.docker.compose.service"] = key
+		f := dockerx.Facts{
+			Name: key, Labels: labels, CapDrop: []string{"ALL"}, SecurityOpt: []string{"no-new-privileges:true"},
+			NetworkMode: s.Networks[0], IpcMode: "private", Memory: s.MemLimit, PidsLimit: s.PidsLimit,
+			State: "running", Health: health,
+		}
+		for _, v := range s.Volumes {
+			f.Mounts = append(f.Mounts, dockerx.MountFact{Type: v.Type, Source: v.Source, Destination: v.Target})
+		}
+		for _, p := range s.Ports {
+			hp, _ := strconv.Atoi(p.Published)
+			f.PortBindings = append(f.PortBindings, dockerx.PortFact{ContainerPort: p.Target, Protocol: p.Protocol, HostIP: p.HostIP, HostPort: hp})
+		}
+		d.Containers[key] = dockerx.ContainerInfo{ID: key, Name: key, Labels: labels, State: "running", Status: "Up", Health: health, Created: time.Now()}
+		d.Facts[key] = f
+	}
+	return nil
 }
 
 func (d *FakeDocker) RemoveVolume(_ context.Context, name string) error {

@@ -24,6 +24,9 @@ type planned struct {
 	memBytes int64
 	cpus     float64
 	claims   []store.PortClaim
+	// healthchecks reports per short service name whether the stack
+	// defines a healthcheck (the running/healthy check needs it).
+	healthchecks map[string]bool
 	// secretValues holds the referenced secret values (service -> env key
 	// -> value) read during planning; refs are the matching secret refs.
 	secretValues map[string]map[string]string
@@ -63,15 +66,13 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	if !names.ValidApp(app) {
 		return nil, validationError("app", appRule)
 	}
-	granted, err := s.Store.GrantedTemplates(ctx, ws.ID)
+	templates, pol, err := s.currentPolicy(ctx, ws, app)
 	if err != nil {
 		return nil, err
 	}
-	templates := map[string]tmpl.Template{}
 	grants := stack.Grants{}
-	for _, t := range granted {
-		templates[t.Name] = t.Template
-		grants[t.Name] = t.Template.Shareable()
+	for name, t := range templates {
+		grants[name] = t.Shareable()
 	}
 	q := ws.Quota
 	lim := stack.Limits{
@@ -112,10 +113,9 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	if len(qerrs) > 0 {
 		return nil, &Error{Code: CodeQuota, Message: strings.Join(qerrs, "; ")}
 	}
-	dataDir := s.dataDir(ws.Name, app)
 	out, err := render.Render(render.Input{
 		Workspace: ws.Name, App: app, Stack: st, Templates: templates,
-		Defaults: defaults, DataDir: dataDir, SecretsDir: s.secretsDir(ws.Name, app), BindIP: ws.PortBindIP,
+		Defaults: defaults, DataDir: pol.DataDir, SecretsDir: pol.SecretsDir, BindIP: ws.PortBindIP,
 	})
 	var fe *render.FieldError
 	if errors.As(err, &fe) {
@@ -124,17 +124,6 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	if err != nil {
 		return nil, err
 	}
-	nets := map[string]bool{names.Network(ws.Name, app): true}
-	for _, t := range templates {
-		for _, n := range t.Networks {
-			nets[n] = true
-		}
-	}
-	pol := verify.Policy{
-		Workspace: ws.Name, App: app, DataDir: dataDir, SecretsDir: s.secretsDir(ws.Name, app), Networks: nets,
-		MaxMemoryBytes: lim.MaxMemoryBytes, MaxCPUs: q.MaxCPUs, MaxPids: q.MaxPids,
-		PortRangeStart: ws.PortRangeStart, PortRangeEnd: ws.PortRangeEnd, BindIP: ws.PortBindIP,
-	}
 	if err := verify.Verify(out.YAML, pol); err != nil {
 		return nil, &Error{Code: CodeSecurity, Message: "rendered configuration failed verification", detail: err.Error(), critical: true}
 	}
@@ -142,12 +131,42 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	if err != nil {
 		return nil, err
 	}
+	health := map[string]bool{}
+	for name, svc := range st.Services {
+		health[name] = svc.Healthcheck != nil
+	}
 	return &planned{app: app, stack: st, out: out, policy: pol, defaults: defaults, memBytes: mem, cpus: cpus,
 		claims:          claimsFrom(app, out.Ports),
+		healthchecks:    health,
 		secretValues:    secrets.values,
 		refs:            secrets.refs,
 		imagePrefixes:   reservedPrefixes(slices.Concat(fixedImagePrefixes, s.ExtraReservedPrefixes), all),
 		runtimePrefixes: reservedPrefixes(slices.Concat(fixedRuntimePrefixes, s.ExtraReservedPrefixes), all)}, nil
+}
+
+// currentPolicy loads the workspace's granted templates and builds the
+// verifier policy for app from the current workspace row (quota, port range,
+// bind IP, template networks). Deploys verify their render with it; secret
+// applies re-verify the current compose file.
+func (s *Service) currentPolicy(ctx context.Context, ws store.Workspace, app string) (map[string]tmpl.Template, verify.Policy, error) {
+	granted, err := s.Store.GrantedTemplates(ctx, ws.ID)
+	if err != nil {
+		return nil, verify.Policy{}, err
+	}
+	templates := map[string]tmpl.Template{}
+	nets := map[string]bool{names.Network(ws.Name, app): true}
+	for _, t := range granted {
+		templates[t.Name] = t.Template
+		for _, n := range t.Template.Networks {
+			nets[n] = true
+		}
+	}
+	q := ws.Quota
+	return templates, verify.Policy{
+		Workspace: ws.Name, App: app, DataDir: s.dataDir(ws.Name, app), SecretsDir: s.secretsDir(ws.Name, app), Networks: nets,
+		MaxMemoryBytes: q.MaxMemoryMB << 20, MaxCPUs: q.MaxCPUs, MaxPids: q.MaxPids,
+		PortRangeStart: ws.PortRangeStart, PortRangeEnd: ws.PortRangeEnd, BindIP: ws.PortBindIP,
+	}, nil
 }
 
 func claimsFrom(app string, ports []render.PublishedPort) []store.PortClaim {

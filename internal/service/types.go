@@ -95,6 +95,8 @@ type AppView struct {
 	DiskBytes        int64           `json:"disk_bytes"`
 	LastDeployAt     string          `json:"last_deploy_at,omitempty"`
 	LastDeployResult string          `json:"last_deploy_result"`
+	StaleSecrets     []string        `json:"stale_secrets,omitempty" jsonschema:"<service>.<ENV_KEY> whose secret has a newer value the running container does not have yet"`
+	SecretApplyError string          `json:"secret_apply_error,omitempty" jsonschema:"why the last update of a changed secret value was skipped or failed"`
 }
 
 type ListResult struct {
