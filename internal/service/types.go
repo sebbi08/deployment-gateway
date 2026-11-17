@@ -64,6 +64,7 @@ type ServicePlan struct {
 	Ports        []store.PortClaim `json:"ports"`
 	MemoryMB     int64             `json:"memory_mb"`
 	CPUs         float64           `json:"cpus"`
+	SecretEnv    []string          `json:"secret_env,omitempty" jsonschema:"env vars filled from workspace secrets (names only)"`
 }
 
 type ValidateResult struct {
@@ -80,6 +81,7 @@ type ServiceStatus struct {
 	State        string            `json:"state"`
 	Health       string            `json:"health,omitempty"`
 	Ports        []store.PortClaim `json:"ports"`
+	SecretEnv    []string          `json:"secret_env,omitempty" jsonschema:"env vars filled from workspace secrets (names only)"`
 }
 
 type AppStatus struct {

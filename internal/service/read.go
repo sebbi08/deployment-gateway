@@ -141,7 +141,7 @@ func (s *Service) Logs(ctx context.Context, p Principal, in LogsInput) (res Logs
 	if err != nil {
 		return LogsResult{}, err
 	}
-	return LogsResult{App: in.App, Service: in.Service, Logs: printableLogs(logs)}, nil
+	return LogsResult{App: in.App, Service: in.Service, Logs: printableLogs(s.masker(ctx, ws.ID)(logs))}, nil
 }
 
 // printableLogs keeps printable text, newlines and tabs: control bytes and
