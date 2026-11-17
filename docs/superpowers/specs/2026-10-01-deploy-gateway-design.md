@@ -102,11 +102,14 @@ If a non-gateway container already has a composed name, compose fails and the de
 └── <app>/
     ├── docker-compose.yml        # rendered by gateway
     ├── docker-compose.prev.yml   # previous successful render (kept for manual rollback)
+    ├── secrets/                  # root:root 0700, never mounted into containers
+    │   └── <svc>.env             # root:root 0600; KEY=value lines of the service's secrets
     └── data/
         └── <svc>/                # created by gateway; bind-mounted at the agent's volume.path
 ```
 
 - The gateway creates all directories. Agents never supply host paths.
+- `secrets/` holds the env files for workspace secrets (see the [Workspace secrets design](2026-11-17-workspace-secrets-design.md), §6.1). It and its files are excluded from `FILE_OWNER` group ownership, and the admin file explorer refuses to show the content of files below it (422 `secret files are not shown`).
 - If a service sets `user: "uid:gid"` with a non-zero uid, `data/<svc>/` is chowned to that uid:gid (mode 0755); otherwise it is owned by root with mode 0700, because a root container can create setuid-root files in it. Operators should mount `WORKSPACES_ROOT` with `nosuid,nodev`.
 - If `FILE_OWNER` (`uid:gid`) is set, the workspace folder, app folder, `data/` and the compose files (`docker-compose.yml`, `.prev.yml`, `.next.yml`) get group `gid` (owner stays root; folders 0750, files 0640) on creation and on every deploy, so that group can read them but not change what the root gateway runs; `data/<svc>/` is excluded (see above). Ownership changes never follow symlinks.
 - `WORKSPACES_ROOT` must be mounted into the gateway container **at the identical absolute path** as on the host, because the daemon resolves bind paths on the host. Verified at startup by inspecting the gateway's own container mounts; mismatch → refuse to start.
@@ -150,6 +153,7 @@ Per service (all optional except `image`):
 | `image` | Docker reference grammar; explicit tag or digest required; tag `latest` rejected; any registry |
 | `command`, `entrypoint` | Exec-form string arrays; ≤ 32 items; each ≤ 4 KB; no NUL |
 | `environment` | Map; keys `^[A-Za-z_][A-Za-z0-9_]{0,63}$`; values ≤ 8 KB, no NUL; ≤ 100 entries; ≤ 64 KB total |
+| `secrets` | Map env var name → workspace secret name; env keys as for `environment`, disjoint from it, secret names `^[a-z][a-z0-9_-]{0,47}$`; counts toward the 100-entry limit of `environment`. Values are set by the operator and never seen by agents. A secret that does not exist, is still requested, or would exceed the workspace's secret cap yields a `validation_failed` field error (`services.<svc>.secrets.<KEY>`); a deploy asking for a missing secret also records a request for the operator. See the [Workspace secrets design](2026-11-17-workspace-secrets-design.md), §4 |
 | `expose` | `{template, port}`; template must be granted to the workspace; port 1–65535; at most one per service. Optional — a service without `expose` gets no hostname and joins only the private stack network. If the template's `host_pattern` lacks `{{service}}`, at most one service per stack may use that template |
 | `ports` | List of `{container, host, protocol?}`; ≤ 10 per service; `container` 1–65535; `host` a single port inside the workspace's published port range (no port ranges); `protocol` `tcp` (default) or `udp`; bound to the workspace's bind IP (agent cannot choose the IP). Rejected entirely if the workspace has no port range. A host port/protocol already claimed by another app of the workspace → `port_taken` |
 | `volume` | `{path}`; absolute, already normalized (`path.Clean(p) == p`), no `..`, not `/`, not under `/proc`, `/sys`, `/dev`, `/tmp` (tmpfs); one per service |
@@ -205,6 +209,7 @@ The admin decides hostnames via `host_pattern`; the admin UI rejects any templat
 `render` produces, for each service, a compose service keyed `<ws>-<app>-<svc>` with:
 
 - `image`, `command`, `entrypoint`, `environment` from the stack; **every `$` in agent-supplied strings and in rendered template label values is escaped to `$$`** so compose performs no interpolation.
+- `env_file` (only if the service has `secrets`): exactly one long-syntax entry `{path: <WORKSPACES_ROOT>/<ws>/<app>/secrets/<svc>.env, required: true, format: raw}`; `format: raw` disables interpolation and quote processing, so secret values are taken literally and never appear in the YAML ([Workspace secrets design](2026-11-17-workspace-secrets-design.md), §6.2)
 - `container_name: <ws>-<app>-<svc>`, `hostname: <ws>-<app>-<svc>`
 - `restart: unless-stopped`
 - `cap_drop: [ALL]`, `security_opt: ["no-new-privileges:true"]`
@@ -235,6 +240,7 @@ Output is marshalled with `gopkg.in/yaml.v3` from typed structs (never string co
    - Networks ⊆ {`dg-<ws>-<app>`} ∪ networks of templates granted to the workspace; no aliases.
    - Owner labels equal the token's workspace/app; only the gateway's own four `deploy-gateway.*` labels exist.
    - No unescaped `$` (single `$` not followed by `$`) in any string value.
+   - `env_file` is allowed only in the one form above: a single long-syntax entry whose path is exactly `<WORKSPACES_ROOT>/<ws>/<app>/secrets/<svc>.env` (service name matching the key), `required: true`, `format: raw`, and only for services that have secrets. Any other `env_file` is a violation; the path is never accepted from agent input.
    Verifier failure aborts the deploy before compose runs and is audited as `critical` (it indicates a gateway bug).
 3. **Runtime inspect** (`dockerx`) — after `compose up`, for each container of the project: `Privileged=false`, `CapAdd` empty, `CapDrop` contains `ALL`, `NetworkMode` not `host`, `PidMode`/`IpcMode`/`UTSMode`/`UsernsMode` not `host`, `Devices` empty, `Binds`/`Mounts` only under the app data dir, tmpfs, or anonymous (64-hex-named) volumes from an image's `VOLUME` instruction, `Memory` and `PidsLimit` set, `Runtime` is runc (`runc` or `io.containerd.runc.v2`) or listed in `EXTRA_RUNTIMES` (nvidia runtimes are never allowed; startup refuses a daemon whose default runtime is not allowed), `SecurityOpt` contains `no-new-privileges:true`, `PortBindings` exactly match the rendered ports (host IP and port), owner labels match. Containers that already existed before this `up` (left behind when `up` fails early) get every check except the exact match of labels and ports against the new render; they were checked against their own render when deployed. On any mismatch: `compose down`, audit `critical`, return error.
 
@@ -246,6 +252,7 @@ Output is marshalled with `gopkg.in/yaml.v3` from typed structs (never string co
 - Other: `down -v --remove-orphans` (delete; `-v` removes anonymous volumes created by an image's `VOLUME` instruction), `restart [svc]`, `stop [svc]`. Logs and status via Docker SDK, not compose.
 - Process group killed on context timeout.
 - Concurrency: per-app mutex; global semaphore `DEPLOY_CONCURRENCY` (default 1). Each workspace has at most one compose operation waiting for the global semaphore, so one tenant cannot queue all others behind its operations. The wait is bounded by `DEPLOY_TIMEOUT`; after that the operation fails with "the gateway is busy" and changes nothing.
+- Env files for secrets: before `pull`, env files that `docker-compose.next.yml` references but that do not exist yet are created empty (existing ones are untouched until commit); at rotate the env files of all services with secrets are written atomically (temp file in `secrets/`, fsync, rename) from the committed values, `stale` is cleared, and files of services without secrets are removed. A changed value is applied by a background job (`up -d --pull never --no-deps --wait` of the affected running services, via the runner's `Recreate`) under the app lock; see the [Workspace secrets design](2026-11-17-workspace-secrets-design.md), §7.
 - Deploy flow: validate → quota → render to `docker-compose.next.yml` → verify → `pull` (of next) → image-label check → re-check quota/ports and commit the reservation and port claims → rotate (`current → prev`, `next → current`) → `up` → runtime inspect → every planned service must have a running container, healthy if it has a healthcheck (compose's exit code alone is not trusted). A failure before the commit changes no DB state and leaves the running deployment and its reservation untouched (a first deploy leaves no app record). On `up` failure, the app keeps the larger of its previous and new memory/CPU reservation until a deploy succeeds, because containers with the previous limits may still run; return the error plus the last 50 log lines of failing services, and state that `docker-compose.prev.yml` is available.
 
 ## 12. Agent tools / API
@@ -254,12 +261,12 @@ Each MCP tool has a matching `POST /api/v1/<tool>` with the same JSON input/outp
 
 | Tool | Input | Output |
 |---|---|---|
-| `whoami` | — | workspace, quotas, current usage, published port range and bind IP, ports in use, naming scheme, agent guidance (e.g. use `user:` for images that drop privileges) |
+| `whoami` | — | workspace, quotas, current usage, published port range and bind IP, ports in use, naming scheme, `secrets: [{name, state}]` (names and `set`/`requested` only; never values), agent guidance (e.g. use `user:` for images that drop privileges) |
 | `list_templates` | — | granted templates: name, description, host pattern |
 | `validate` | `app`, `stack` | errors, or rendered hostnames, URLs, published ports and resource totals; starts nothing |
 | `deploy` | `app`, `stack` | per-service status, health, hostname, URL (if exposed), published ports |
-| `list` | — | apps: services, state, health, URL (if exposed), published ports, disk usage, last deploy time/result |
-| `logs` | `app`, `service`, `tail` (default 200, max 1000), `since` | combined stdout/stderr as text (control bytes and invalid UTF-8 removed; over MCP as a single text content), capped at 256 KB |
+| `list` | — | apps: services, state, health, URL (if exposed), published ports, disk usage, last deploy time/result, `secret_env` per service (env var names only), `stale_secrets` (`<service>.<ENV_KEY>` whose secret has a newer value not yet applied) and `secret_apply_error` (sanitized, masked) if the last secret apply failed |
+| `logs` | `app`, `service`, `tail` (default 200, max 1000), `since` | combined stdout/stderr as text (control bytes and invalid UTF-8 removed; over MCP as a single text content), capped at 256 KB; values of workspace secrets (6+ bytes) are replaced by `***` (best effort) |
 | `restart` | `app`, `service?` | status |
 | `stop` | `app`, `service?` | status |
 | `delete` | `app`, `confirm` (must equal `app`) | ok; removes containers, network, app folder, port claims |
@@ -314,12 +321,14 @@ A React single-page app served by the admin listener only. It talks exclusively 
 | `POST workspaces/{name}/tokens`, `POST workspaces/{name}/tokens/{id}/revoke` | create (token returned once) / revoke |
 | `POST workspaces/{name}/apps/{app}/stop`, `DELETE workspaces/{name}/apps/{app}` | stop / delete (`{"confirm": app}`) |
 | `GET workspaces/{name}/files?path=`, `GET workspaces/{name}/files/content?path=` | read-only file explorer: one directory level (≤ 500 entries, directories first, `more` counts the rest) / one regular file (≤ 512 KB, `truncated` flag; NUL bytes or invalid UTF-8 → `binary`, no content). `data/` is written by agent containers, so every path is walked component by component with `openat(O_NOFOLLOW)` from the workspace folder: `..`, empty and absolute paths are rejected, symlinks are listed with their target text but never followed (not even inside the workspace), FIFOs/sockets/devices are listed but never opened, and the type is checked before and after opening. Not audited, like other admin reads |
+| `GET`, `POST workspaces/{name}/secrets`; `PUT`, `DELETE workspaces/{name}/secrets/{secret}`; `POST workspaces/{name}/secrets/{secret}/apply` | secrets tab: list (name, set/requested, usage with `stale`; never values) / create / set or replace (triggers apply for apps using it) / delete (`conflict` while in use) / re-run apply for stale refs. Audit params carry the secret name only. See the [Workspace secrets design](2026-11-17-workspace-secrets-design.md), §8 |
 | `GET`, `POST templates`, `GET`, `PUT`, `DELETE templates/{id}` | template CRUD (save-time checks and hostname-uniqueness validation from §8) |
 | `POST templates/preview` | validate and render sample values; never saves |
 | `GET audit` | filters + `before` cursor |
 | `GET`, `PUT settings` | default quota, audit retention |
 | `GET orphans`, `DELETE orphans/{id}` | list / remove |
 
+- The workspace page has a **Secrets** tab (Set/Replace modal with a password-type input, no reveal and no prefill), and the dashboard shows a banner with the number of requested secrets.
 - Errors use the same `{code, message, errors}` structure as the agent API; admin responses additionally include the internal `detail` (the admin is trusted).
 - Request bodies are decoded strictly (unknown fields rejected).
 
@@ -344,14 +353,19 @@ tokens(id, workspace_id FK, label, hash UNIQUE, prefix, created_at, last_used_at
 templates(id, name UNIQUE, description, host_pattern, networks_json, labels_json, created_at, updated_at)
 workspace_templates(workspace_id FK, template_id FK, PRIMARY KEY(workspace_id, template_id))
 apps(id, workspace_id FK, name, memory_bytes, cpus, hosts_json, created_at, updated_at, last_deploy_at, last_deploy_result,
+     secret_apply_state, secret_apply_at, secret_apply_error,
      UNIQUE(workspace_id, name))
+workspace_secrets(id, workspace_id FK ON DELETE CASCADE, name, value NULL (NULL = requested), created_at, updated_at, requested_at, requested_by,
+                  UNIQUE(workspace_id, name))
+app_secret_refs(app_id FK ON DELETE CASCADE, service, env_key, secret_id FK ON DELETE RESTRICT, stale,
+                PRIMARY KEY(app_id, service, env_key))
 port_claims(protocol, host_port, container_port, service, app_id FK, PRIMARY KEY(protocol, host_port))
 audit(id, ts, actor_type, actor, workspace, token_id, action, params_json, result, error,
       severity, duration_ms, client_ip)
 settings(key PRIMARY KEY, value)
 ```
 
-Audit params redact environment **values** (`***`); keys are kept. Params are stored without HTML escaping and limited to 8 KiB; larger params are replaced by a summary (app, service names and images, size and SHA-256 of the full redacted params). Retention job deletes rows older than the configured days (default 90).
+Audit params redact environment **values** (`***`); keys are kept. Secret values are stored in SQLite in plaintext (see the [Workspace secrets design](2026-11-17-workspace-secrets-design.md)) and never appear in audit params. Params are stored without HTML escaping and limited to 8 KiB; larger params are replaced by a summary (app, service names and images, size and SHA-256 of the full redacted params). Retention job deletes rows older than the configured days (default 90).
 
 ## 16. Configuration (env)
 

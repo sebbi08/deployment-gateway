@@ -64,6 +64,7 @@ Open the admin host (`https://$ADMIN_HOST`, e.g. `https://deploy-admin.example.c
      ```
    The editor shows a live preview (validation errors, example host, rendered labels) while you type.
 2. **Workspaces** → create a workspace (name, quota, published port range, bind IP); on its page grant templates (Templates tab) and create a token (Tokens tab, shown once with a copy button). Stopping an app in the Apps tab is temporary: the agent can restart or redeploy it. To keep an app down, revoke the workspace's tokens or delete the app.
+3. **Secrets** (workspace page, Secrets tab) → credentials an app needs, such as API keys, are never put in the stack by agents. An agent references a secret by name in a service's `secrets` (env var name → secret name); a name that does not exist yet shows up as a requested secret (dashboard banner) until you set its value. Values are write-only in the UI, stored in plaintext in the gateway database and written to root-only env files that are never mounted into containers; agent-facing logs mask them best effort. Replacing a value re-creates the affected running services automatically (the agent's `restart` does not pick up new values); deploys fail until every referenced secret is set. See `docs/superpowers/specs/2026-11-17-workspace-secrets-design.md`.
 
 ## Connecting an agent
 

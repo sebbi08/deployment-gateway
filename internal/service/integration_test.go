@@ -154,3 +154,102 @@ func TestIntegrationDeployLifecycle(t *testing.T) {
 		t.Fatal("app folder left after delete")
 	}
 }
+
+func TestIntegrationSecrets(t *testing.T) {
+	bin := os.Getenv("COMPOSE_BIN")
+	if bin == "" {
+		t.Skip("COMPOSE_BIN not set")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	dc, err := dockerx.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := dc.Ping(ctx); err != nil {
+		t.Skipf("docker unreachable: %v", err)
+	}
+	root := t.TempDir()
+	st, err := store.Open(filepath.Join(t.TempDir(), "it.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { st.Close() })
+	dockerHost := os.Getenv("DOCKER_HOST")
+	if dockerHost == "" {
+		dockerHost = "unix:///var/run/docker.sock"
+	}
+	run := runner.New(runner.Options{Bin: bin, DockerConfig: filepath.Join(os.Getenv("HOME"), ".docker"), DockerHost: dockerHost,
+		Timeout: 2 * time.Minute, Concurrency: 1})
+	svc := service.New(st, run, dc, root)
+	svc.ApplyLockWait = 30 * time.Second
+	svc.StartSecretApplier(ctx)
+
+	w, err := svc.CreateWorkspace(ctx, "itest", "itsecret", store.BuiltinDefaultQuota(), service.PortSettings{Start: 28100, End: 28109, BindIP: "127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := servicetest.Principal(t, svc, st, "itsecret", "127.0.0.1")
+	t.Cleanup(func() { svc.Delete(context.Background(), p, service.DeleteInput{App: "sec", Confirm: "sec"}) })
+
+	const newValue = "new-secret-value"
+	const value = "pa$$ss \"q\" #x = y"
+	if err := svc.CreateSecret(ctx, "itest", w, "s", value); err != nil {
+		t.Fatalf("create secret: %v", err)
+	}
+	stk := mustStack(t, `{"services": {
+		"sleeper": {"image": "busybox:1.37", "command": ["sleep", "300"], "secrets": {"A": "s"}},
+		"echoer": {"image": "busybox:1.37", "command": ["sh", "-c", "echo \"value=$A\"; sleep 300"], "secrets": {"A": "s"}}}}`)
+	if _, err := svc.Deploy(ctx, p, service.DeployInput{App: "sec", Stack: stk}); err != nil {
+		t.Fatalf("deploy: %v\ndetail: %s", err, detail(err))
+	}
+
+	const ctr = "itsecret-sec-sleeper"
+	readA := func() string {
+		out, err := exec.Command("docker", "exec", ctr, "sh", "-c", `printf %s "$A"`).Output()
+		if err != nil {
+			t.Fatalf("docker exec: %v", err)
+		}
+		return string(out)
+	}
+	id := func() string {
+		out, err := exec.Command("docker", "inspect", "--format", "{{.Id}}", ctr).Output()
+		if err != nil {
+			t.Fatalf("docker inspect: %v", err)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	if got := readA(); got != value {
+		t.Fatalf("$A = %q, want %q", got, value)
+	}
+	before := id()
+
+	if _, err := svc.SetSecret(ctx, "itest", w, "s", newValue); err != nil {
+		t.Fatalf("set secret: %v", err)
+	}
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		app, err := st.GetApp(ctx, w.ID, "sec")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if app.SecretApplyState == "ok" && id() != before {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("apply did not finish: state=%q err=%q", app.SecretApplyState, app.SecretApplyError)
+		}
+		time.Sleep(time.Second)
+	}
+	if got := readA(); got != newValue {
+		t.Fatalf("$A after apply = %q, want %q", got, newValue)
+	}
+
+	logs, err := svc.Logs(ctx, p, service.LogsInput{App: "sec", Service: "echoer", Tail: 20})
+	if err != nil {
+		t.Fatalf("logs: %v", err)
+	}
+	if !strings.Contains(logs.Logs, "***") || strings.Contains(logs.Logs, newValue) {
+		t.Fatalf("logs not redacted: %q", logs.Logs)
+	}
+}
