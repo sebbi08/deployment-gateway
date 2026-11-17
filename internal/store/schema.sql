@@ -89,3 +89,24 @@ CREATE TABLE IF NOT EXISTS settings (
   key TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS workspace_secrets (
+  id INTEGER PRIMARY KEY,
+  workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  value TEXT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  requested_at INTEGER NULL,
+  requested_by TEXT NOT NULL DEFAULT '',
+  UNIQUE (workspace_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS app_secret_refs (
+  app_id INTEGER NOT NULL REFERENCES apps(id) ON DELETE CASCADE,
+  service TEXT NOT NULL,
+  env_key TEXT NOT NULL,
+  secret_id INTEGER NOT NULL REFERENCES workspace_secrets(id) ON DELETE RESTRICT,
+  stale INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (app_id, service, env_key)
+);

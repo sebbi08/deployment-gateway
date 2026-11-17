@@ -20,6 +20,10 @@ type App struct {
 	UpdatedAt        time.Time
 	LastDeployAt     *time.Time
 	LastDeployResult string
+
+	SecretApplyState string
+	SecretApplyAt    *time.Time
+	SecretApplyError string
 }
 
 type PortClaim struct {
@@ -42,17 +46,19 @@ type Usage struct {
 	CPUs        float64
 }
 
-const appCols = `id, workspace_id, name, memory_bytes, cpus, hosts_json, created_at, updated_at, last_deploy_at, last_deploy_result`
+const appCols = `id, workspace_id, name, memory_bytes, cpus, hosts_json, created_at, updated_at, last_deploy_at, last_deploy_result, secret_apply_state, secret_apply_at, secret_apply_error`
 
 func scanApp(sc scanner) (App, error) {
 	var a App
 	var hosts string
 	var created, updated int64
-	var deployed sql.NullInt64
-	if err := sc.Scan(&a.ID, &a.WorkspaceID, &a.Name, &a.MemoryBytes, &a.CPUs, &hosts, &created, &updated, &deployed, &a.LastDeployResult); err != nil {
+	var deployed, applied sql.NullInt64
+	if err := sc.Scan(&a.ID, &a.WorkspaceID, &a.Name, &a.MemoryBytes, &a.CPUs, &hosts, &created, &updated, &deployed, &a.LastDeployResult,
+		&a.SecretApplyState, &applied, &a.SecretApplyError); err != nil {
 		return App{}, notFound(err)
 	}
 	a.CreatedAt, a.UpdatedAt, a.LastDeployAt = time.Unix(created, 0), time.Unix(updated, 0), timePtr(deployed)
+	a.SecretApplyAt = timePtr(applied)
 	if err := json.Unmarshal([]byte(hosts), &a.Hosts); err != nil {
 		return App{}, err
 	}
@@ -99,8 +105,9 @@ func (s *Store) AppKeys(ctx context.Context) (map[string]bool, error) {
 }
 
 // SaveDeployment upserts the app record and replaces its port claims in one
-// transaction. On a claim conflict nothing is changed.
-func (s *Store) SaveDeployment(ctx context.Context, wsID int64, name string, mem int64, cpus float64, hosts map[string]string, claims []PortClaim) (App, error) {
+// transaction, together with its secret refs (all non-stale). On a claim
+// conflict or a ref to a missing or unset secret nothing is changed.
+func (s *Store) SaveDeployment(ctx context.Context, wsID int64, name string, mem int64, cpus float64, hosts map[string]string, claims []PortClaim, refs []SecretRefInput) (App, error) {
 	if hosts == nil {
 		hosts = map[string]string{}
 	}
@@ -137,6 +144,20 @@ func (s *Store) SaveDeployment(ctx context.Context, wsID int64, name string, mem
 		for _, c := range claims {
 			if _, err := tx.ExecContext(ctx, `INSERT INTO port_claims (protocol, host_port, container_port, service, app_id) VALUES (?, ?, ?, ?, ?)`,
 				c.Protocol, c.HostPort, c.ContainerPort, c.Service, appID); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx, `DELETE FROM app_secret_refs WHERE app_id=?`, appID); err != nil {
+			return err
+		}
+		for _, r := range refs {
+			var secretID int64
+			err := tx.QueryRowContext(ctx, `SELECT id FROM workspace_secrets WHERE workspace_id=? AND name=? AND value IS NOT NULL`, wsID, r.Secret).Scan(&secretID)
+			if err != nil {
+				return notFound(err)
+			}
+			if _, err := tx.ExecContext(ctx, `INSERT INTO app_secret_refs (app_id, service, env_key, secret_id, stale) VALUES (?, ?, ?, ?, 0)`,
+				appID, r.Service, r.EnvKey, secretID); err != nil {
 				return err
 			}
 		}
@@ -245,7 +266,11 @@ type AppRef struct {
 
 // AppsWithResult returns every app whose last deploy result is result.
 func (s *Store) AppsWithResult(ctx context.Context, result string) ([]AppRef, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT w.name, a.id FROM apps a JOIN workspaces w ON w.id = a.workspace_id WHERE a.last_deploy_result=?`, result)
+	return s.appRefsWhere(ctx, `a.last_deploy_result=?`, result)
+}
+
+func (s *Store) appRefsWhere(ctx context.Context, cond string, arg any) ([]AppRef, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT w.name, a.id FROM apps a JOIN workspaces w ON w.id = a.workspace_id WHERE `+cond, arg)
 	if err != nil {
 		return nil, err
 	}
@@ -275,4 +300,15 @@ func (s *Store) AppsWithResult(ctx context.Context, result string) ([]AppRef, er
 		out = append(out, AppRef{Workspace: r.ws, App: a})
 	}
 	return out, nil
+}
+
+func (s *Store) SetSecretApply(ctx context.Context, appID int64, state, errMsg string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE apps SET secret_apply_state=?, secret_apply_error=?, secret_apply_at=? WHERE id=?`,
+		state, errMsg, s.now().Unix(), appID)
+	return err
+}
+
+// AppsWithApplyState returns every app whose secret apply state is state.
+func (s *Store) AppsWithApplyState(ctx context.Context, state string) ([]AppRef, error) {
+	return s.appRefsWhere(ctx, `a.secret_apply_state=?`, state)
 }
