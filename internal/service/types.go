@@ -35,6 +35,13 @@ type Usage struct {
 	CPUs     float64 `json:"cpus"`
 }
 
+// SecretState names a workspace secret and whether the operator has set its
+// value ("set") or it is only requested. Values are never exposed.
+type SecretState struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
 type WhoamiResult struct {
 	Workspace  string            `json:"workspace"`
 	Quota      store.Quota       `json:"quota"`
@@ -44,6 +51,7 @@ type WhoamiResult struct {
 	PortsInUse []store.PortClaim `json:"ports_in_use"`
 	Naming     string            `json:"naming"`
 	Guidance   []string          `json:"guidance"`
+	Secrets    []SecretState     `json:"secrets" jsonschema:"workspace secrets you can reference by name in services.<svc>.secrets; values are never shown"`
 }
 
 type TemplateView struct {

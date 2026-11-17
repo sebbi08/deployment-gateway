@@ -23,6 +23,7 @@ var guidance = []string{
 	"The root filesystem is read-only and /tmp is a tmpfs. Set writable_rootfs: true if the image must write elsewhere, or use a volume.",
 	"Use validate before deploy to see hostnames, URLs, published ports and resource totals without starting anything.",
 	"Environment values are passed literally; $ is never interpolated.",
+	`Never put credentials in environment. Reference a workspace secret instead: "secrets": {"STRIPE_API_KEY": "stripe-prod"}. validate/deploy register unknown names as requested; ask the operator to set the value in the admin UI. You never see secret values; redeploy is not needed after the operator changes one.`,
 }
 
 func (s *Service) Whoami(ctx context.Context, p Principal) (res WhoamiResult, err error) {
@@ -43,7 +44,20 @@ func (s *Service) Whoami(ctx context.Context, p Principal) (res WhoamiResult, er
 	if ws.PortRangeStart > 0 {
 		pr = fmt.Sprintf("%d-%d", ws.PortRangeStart, ws.PortRangeEnd)
 	}
+	secs, err := s.Store.ListSecrets(ctx, ws.ID)
+	if err != nil {
+		return WhoamiResult{}, err
+	}
+	states := make([]SecretState, 0, len(secs))
+	for _, sec := range secs {
+		st := "requested"
+		if sec.Set {
+			st = "set"
+		}
+		states = append(states, SecretState{Name: sec.Name, State: st})
+	}
 	return WhoamiResult{
+		Secrets:   states,
 		Workspace: ws.Name, Quota: ws.Quota,
 		Usage:     Usage{Apps: u.Apps, MemoryMB: u.MemoryBytes >> 20, CPUs: u.CPUs},
 		PortRange: pr, PortBindIP: ws.PortBindIP, PortsInUse: claims,

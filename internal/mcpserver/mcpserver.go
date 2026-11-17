@@ -18,7 +18,8 @@ import (
 
 const instructions = `deploy-gateway deploys containerized apps into your own workspace on a shared server.
 Workflow: whoami (limits, port range, naming) -> list_templates (how services can be exposed) -> validate -> deploy -> list / logs.
-Images must already be pushed to a registry with a pinned tag. You never supply compose files, volumes paths, labels or security options; the gateway renders a hardened configuration from the stack you send.`
+Images must already be pushed to a registry with a pinned tag. You never supply compose files, volumes paths, labels or security options; the gateway renders a hardened configuration from the stack you send.
+Never put credentials in environment: reference a workspace secret by name in a service's "secrets" (env var -> secret name). Unknown names are registered as requested; the operator sets the value in the admin UI and you never see it.`
 
 func New(svc *service.Service, version string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "deploy-gateway", Version: version}, &mcp.ServerOptions{Instructions: instructions})
