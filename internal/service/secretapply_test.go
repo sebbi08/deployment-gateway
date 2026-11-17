@@ -236,6 +236,42 @@ func TestApplyWaitsForAppLock(t *testing.T) {
 	}
 }
 
+// A quota lowered while the pass waits for the app lock applies to that
+// pass: the compose file's mem_limit now exceeds it, so the pass is skipped.
+func TestApplyUsesWorkspaceReloadedAfterLock(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	a := deployApply(t, h, p)
+	h.svc.SetApplyPoll(20 * time.Millisecond)
+	h.startApplier()
+	unlock, ok := h.compose.TryLock("alice/shop")
+	if !ok {
+		t.Fatal("lock taken")
+	}
+	if _, err := h.st.SetSecretValue(h.ctx, p.Workspace.ID, "db-pass", newPass); err != nil {
+		t.Fatal(err)
+	}
+	n := len(h.compose.Calls())
+	h.svc.EnqueueApply("alice", []int64{a.ID})
+	time.Sleep(200 * time.Millisecond) // the pass is waiting for the lock now
+	w, err := h.st.GetWorkspace(h.ctx, p.Workspace.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Quota.DefaultMemoryMB, w.Quota.MaxMemoryMB = 128, 128 // the file has mem_limit 256m
+	if err := h.svc.UpdateWorkspace(h.ctx, "admin", w); err != nil {
+		t.Fatal(err)
+	}
+	unlock()
+	h.waitApplyIdle()
+	if got := h.callsSince(n); len(got) != 0 {
+		t.Fatalf("compose calls = %v", got)
+	}
+	if a := h.app(p, "shop"); a.SecretApplyState != "skipped" || a.SecretApplyError != "configuration no longer allowed by current policy; the agent must redeploy" {
+		t.Fatalf("apply state = %q %q", a.SecretApplyState, a.SecretApplyError)
+	}
+}
+
 func TestApplyLockTimeout(t *testing.T) {
 	h := newHarness(t)
 	p := h.workspace("alice", 20000, 20099)

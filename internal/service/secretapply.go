@@ -167,14 +167,10 @@ func (o applyOutcome) params(app string) map[string]any {
 // a newer value (spec §7). The outcome goes to the app's apply status, never
 // to last_deploy_*.
 func (s *Service) applySecrets(ctx context.Context, ws store.Workspace, app store.App) error {
-	cur, err := s.Store.GetWorkspace(ctx, ws.ID)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && (cur.Name != ws.Name || !cur.CreatedAt.Equal(ws.CreatedAt))) {
-		return nil
-	}
-	if err != nil {
+	ws, ok, err := s.reloadWorkspace(ctx, ws)
+	if err != nil || !ok {
 		return err
 	}
-	ws = cur
 	started := time.Now()
 	unlock, err := s.waitAppLock(ctx, lockKey(ws.Name, app.Name))
 	if err != nil {
@@ -200,6 +196,19 @@ func (s *Service) applySecrets(ctx context.Context, ws store.Workspace, app stor
 		Action: "secret_apply", Params: redact(out.params(app.Name))}
 	s.systemFinish(bg, e, &err)
 	return err
+}
+
+// reloadWorkspace re-reads the workspace row. ok is false when it was
+// deleted (IDs are reused, so name and creation time must match too).
+func (s *Service) reloadWorkspace(ctx context.Context, ws store.Workspace) (store.Workspace, bool, error) {
+	cur, err := s.Store.GetWorkspace(ctx, ws.ID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && (cur.Name != ws.Name || !cur.CreatedAt.Equal(ws.CreatedAt))) {
+		return store.Workspace{}, false, nil
+	}
+	if err != nil {
+		return store.Workspace{}, false, err
+	}
+	return cur, true, nil
 }
 
 // systemFinish records a finished background job (actor_type system) as one
@@ -244,8 +253,17 @@ func (s *Service) applyBusy(ctx context.Context, app store.App) (applyOutcome, e
 	return out, s.Store.SetSecretApply(ctx, app.ID, "skipped", skipBusy)
 }
 
-// applyLocked runs one pass under the app lock.
+// applyLocked runs one pass under the app lock. The workspace row is read
+// again here: quota, port range and bind IP may have changed while the pass
+// waited for the lock, and policy and runtime checks must use current ones.
 func (s *Service) applyLocked(ctx context.Context, ws store.Workspace, app store.App) (out applyOutcome, err error) {
+	ws, ok, err := s.reloadWorkspace(ctx, ws)
+	if err != nil {
+		return applyOutcome{}, err
+	}
+	if !ok {
+		return applyOutcome{noop: true}, nil
+	}
 	a, err := s.Store.GetApp(ctx, ws.ID, app.Name)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && a.ID != app.ID) {
 		return applyOutcome{noop: true}, nil
