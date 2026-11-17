@@ -44,7 +44,11 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"workspaces": rows, "critical": toAuditDTOs(crit), "orphans": len(orphans)})
+	requested := 0
+	for _, r := range rows {
+		requested += r.RequestedSecrets
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"workspaces": rows, "critical": toAuditDTOs(crit), "orphans": len(orphans), "requested_secrets": requested})
 }
 
 func (s *Server) listWorkspaces(w http.ResponseWriter, r *http.Request) {

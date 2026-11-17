@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"strings"
 
 	"github.com/sebbi08/deployment-gateway/internal/service"
 	"github.com/sebbi08/deployment-gateway/internal/wsfiles"
@@ -35,7 +36,12 @@ func (s *Server) fileContent(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	c, err := wsfiles.Read(filepath.Join(s.opts.Svc.Root, ws.Name), r.URL.Query().Get("path"))
+	path := r.URL.Query().Get("path")
+	if parts := strings.Split(path, "/"); len(parts) >= 3 && parts[1] == "secrets" {
+		writeJSON(w, http.StatusUnprocessableEntity, apiError{Code: service.CodeValidation, Message: "secret files are not shown"})
+		return
+	}
+	c, err := wsfiles.Read(filepath.Join(s.opts.Svc.Root, ws.Name), path)
 	if err != nil {
 		writeFileErr(w, err)
 		return

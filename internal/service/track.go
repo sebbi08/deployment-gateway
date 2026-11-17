@@ -109,6 +109,11 @@ func redact(params any) string {
 		return string(b)
 	}
 	redactEnv(v)
+	if m, ok := v.(map[string]any); ok {
+		if _, ok := m["value"]; ok {
+			m["value"] = "***"
+		}
+	}
 	out, _ := marshalPlain(v)
 	if len(out) <= maxAuditParams {
 		return string(out)

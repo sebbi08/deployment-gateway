@@ -74,6 +74,7 @@ func (s *Server) Handler() http.Handler {
 	apiMux.HandleFunc("POST /api/admin/logout", s.logout)
 	s.workspaceRoutes(apiMux)
 	s.fileRoutes(apiMux)
+	s.secretRoutes(apiMux)
 	s.miscRoutes(apiMux)
 	apiMux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, apiError{Code: service.CodeNotFound, Message: "no such endpoint"})
