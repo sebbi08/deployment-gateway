@@ -93,7 +93,9 @@ func TestSaveDeploymentRefs(t *testing.T) {
 		t.Fatalf("stale not reset: %+v", got)
 	}
 	// stale again; ClearStale only touches the listed services
-	s.SetSecretValue(ctx, w.ID, "stripe-prod", "v3")
+	if _, err := s.SetSecretValue(ctx, w.ID, "stripe-prod", "v3"); err != nil {
+		t.Fatal(err)
+	}
 	if err := s.ClearStale(ctx, app.ID, []string{"other"}); err != nil {
 		t.Fatal(err)
 	}
@@ -204,5 +206,33 @@ func TestMigrateAddsApplyColumns(t *testing.T) {
 	a, _ := s.GetApp(ctx, w.ID, "shop")
 	if a.SecretApplyState != "failed" || a.SecretApplyError != "boom" {
 		t.Fatalf("app = %+v", a)
+	}
+}
+
+func TestDeleteWorkspaceWithSecretRefs(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	w := newWorkspace(t, s, "alice", 20000, 20099)
+	if err := s.CreateSecret(ctx, w.ID, "k", "v"); err != nil {
+		t.Fatal(err)
+	}
+	app, err := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, nil, []SecretRefInput{{"web", "K", "k"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteWorkspace(ctx, w.ID); err != nil {
+		t.Fatal(err)
+	}
+	if list, _ := s.ListSecrets(ctx, w.ID); len(list) != 0 {
+		t.Fatalf("secrets left: %+v", list)
+	}
+	if refs, _ := s.AppSecretRefs(ctx, app.ID); len(refs) != 0 {
+		t.Fatalf("refs left: %+v", refs)
+	}
+	if _, err := s.GetApp(ctx, w.ID, "shop"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("app err = %v", err)
+	}
+	if err := s.DeleteWorkspace(ctx, w.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err = %v", err)
 	}
 }

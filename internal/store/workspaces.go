@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -141,15 +142,23 @@ func (s *Store) ListWorkspaces(ctx context.Context) ([]Workspace, error) {
 	return out, rows.Err()
 }
 
+// DeleteWorkspace removes the workspace with its apps and secrets. Refs are
+// deleted first because their RESTRICT foreign key to the secrets would
+// otherwise fire before the apps cascade removes them.
 func (s *Store) DeleteWorkspace(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, `DELETE FROM workspaces WHERE id=?`, id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.withTx(ctx, func(tx *sql.Tx) error {
+		if _, err := tx.ExecContext(ctx, `DELETE FROM app_secret_refs WHERE app_id IN (SELECT id FROM apps WHERE workspace_id=?)`, id); err != nil {
+			return err
+		}
+		res, err := tx.ExecContext(ctx, `DELETE FROM workspaces WHERE id=?`, id)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrNotFound
+		}
+		return nil
+	})
 }
 
 // OverlappingWorkspace returns the name of a workspace (other than
