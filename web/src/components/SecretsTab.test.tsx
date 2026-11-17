@@ -1,5 +1,6 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { vi } from "vitest";
 import { mockApi, renderWithProviders } from "../test/utils";
 import type { SecretView } from "../types";
 import { SecretsTab } from "./SecretsTab";
@@ -78,4 +79,31 @@ test("a stale use shows a badge with the explanation and a Re-apply button", asy
   await userEvent.click(within(s).getByRole("button", { name: "Re-apply" }));
   await waitFor(() => expect(calls.some((c) => c.method === "POST" && c.path === "/workspaces/alice/secrets/stripe/apply")).toBe(true));
   expect(within(await row("unused")).queryByRole("button", { name: "Re-apply" })).not.toBeInTheDocument();
+});
+
+test("a stale use shows why the last update did not apply it", async () => {
+  setup();
+  const s = await row("stripe");
+  expect(within(s).getByText("Update failed: boom")).toBeInTheDocument();
+  // The use that is not stale shows no apply status.
+  expect(within(s).getAllByText(/^Update /)).toHaveLength(1);
+});
+
+test("the list is refetched while a use is stale, so the badge clears after the background update", async () => {
+  vi.useFakeTimers({ shouldAdvanceTime: true });
+  try {
+    let n = 0;
+    const cleared = secrets.map((s) => ({ ...s, used_by: s.used_by.map((u) => ({ ...u, stale: false, apply_state: "ok", apply_error: "" })) }));
+    const calls = setup({ "GET /workspaces/alice/secrets": () => ({ body: n++ === 0 ? secrets : cleared }) });
+    expect(within(await row("stripe")).getByText("stale")).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(5000);
+    await waitFor(() => expect(within(screen.getByText("stripe").closest("tr") as HTMLElement).queryByText("stale")).not.toBeInTheDocument());
+    // Nothing stale any more: no further polling.
+    const gets = () => calls.filter((c) => c.method === "GET").length;
+    const before = gets();
+    await vi.advanceTimersByTimeAsync(15000);
+    expect(gets()).toBe(before);
+  } finally {
+    vi.useRealTimers();
+  }
 });
