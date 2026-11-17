@@ -27,6 +27,65 @@ func edit(s *Stack, name string, f func(*Service)) {
 	s.Services[name] = v
 }
 
+func TestValidateSecrets(t *testing.T) {
+	many := func(prefix string, n int) map[string]string {
+		m := map[string]string{}
+		for i := 0; i < n; i++ {
+			m[fmt.Sprintf("%s%d", prefix, i)] = "s"
+		}
+		return m
+	}
+	cases := []struct {
+		name    string
+		env     map[string]string
+		secrets map[string]string
+		field   string // "" means no errors expected
+		msg     string
+	}{
+		{"valid", nil, map[string]string{"STRIPE_API_KEY": "stripe-prod"}, "", ""},
+		{"bad key", nil, map[string]string{"1BAD": "stripe"}, "services.web.secrets.1BAD", "key must match"},
+		{"bad name", nil, map[string]string{"KEY": "Stripe"}, "services.web.secrets.KEY", "^[a-z][a-z0-9_-]{0,47}$"},
+		{"also in environment", map[string]string{"FOO": "x"}, map[string]string{"FOO": "foo"}, "services.web.secrets.FOO", "also set in environment"},
+		{"too many combined", many("E", 60), many("S", 41), "services.web", "at most 100 environment variables and secrets"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := validStack(t)
+			edit(s, "web", func(v *Service) {
+				if tc.env != nil {
+					v.Environment = tc.env
+				}
+				v.Secrets = tc.secrets
+			})
+			errs := Validate(s, testLimits(), testGrants())
+			if tc.field == "" {
+				if errs != nil {
+					t.Fatalf("unexpected errors: %v", errs)
+				}
+				return
+			}
+			for _, fe := range errs {
+				if fe.Field == tc.field && strings.Contains(fe.Message, tc.msg) {
+					return
+				}
+			}
+			t.Fatalf("want error on %s containing %q, got %v", tc.field, tc.msg, errs)
+		})
+	}
+}
+
+func TestSecretNames(t *testing.T) {
+	s := &Stack{Services: map[string]Service{
+		"a": {Secrets: map[string]string{"X": "zeta", "Y": "alpha"}},
+		"b": {Secrets: map[string]string{"Z": "alpha"}},
+		"c": {},
+	}}
+	got := SecretNames(s)
+	if len(got) != 2 || got[0] != "alpha" || got[1] != "zeta" {
+		t.Fatalf("got %v", got)
+	}
+}
+
 func TestValidateAcceptsExample(t *testing.T) {
 	if errs := Validate(validStack(t), testLimits(), testGrants()); errs != nil {
 		t.Fatalf("unexpected errors: %v", errs)

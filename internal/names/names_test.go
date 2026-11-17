@@ -40,6 +40,15 @@ func TestValidators(t *testing.T) {
 		{"svc", ValidService, "w_b", false},
 		{"tpl", ValidTemplate, "public-web", true},
 		{"tpl", ValidTemplate, "p", false},
+		{"secret", ValidSecret, "stripe-prod", true},
+		{"secret", ValidSecret, "a", true},
+		{"secret", ValidSecret, "db_pass-2", true},
+		{"secret", ValidSecret, "Stripe", false},
+		{"secret", ValidSecret, "1abc", false},
+		{"secret", ValidSecret, "", false},
+		{"secret", ValidSecret, "a.b", false},
+		{"secret", ValidSecret, "a" + strings.Repeat("b", 47), true},
+		{"secret", ValidSecret, "a" + strings.Repeat("b", 48), false},
 	}
 	for _, c := range cases {
 		if got := c.fn(c.in); got != c.want {

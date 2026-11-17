@@ -17,6 +17,7 @@ type Service struct {
 	Command        []string          `json:"command,omitempty" jsonschema:"exec-form command"`
 	Entrypoint     []string          `json:"entrypoint,omitempty" jsonschema:"exec-form entrypoint"`
 	Environment    map[string]string `json:"environment,omitempty" jsonschema:"environment variables; values are passed literally (no interpolation)"`
+	Secrets        map[string]string `json:"secrets,omitempty" jsonschema:"environment variables whose values are workspace secrets: env var name -> secret name. Never put credentials in environment; the operator sets secret values in the admin UI and you never see them"`
 	Expose         *Expose           `json:"expose,omitempty" jsonschema:"make this service reachable through an admin-defined exposure template"`
 	Ports          []Port            `json:"ports,omitempty" jsonschema:"publish container ports on host ports inside the workspace port range"`
 	Volume         *Volume           `json:"volume,omitempty" jsonschema:"persistent directory inside the workspace folder, mounted at path"`
@@ -52,6 +53,18 @@ type Resources struct {
 	Memory string  `json:"memory,omitempty" jsonschema:"e.g. 256m or 1g"`
 	CPUs   float64 `json:"cpus,omitempty"`
 	Pids   int64   `json:"pids,omitempty"`
+}
+
+// SecretNames returns the sorted, deduplicated workspace secret names
+// referenced by any service of the stack.
+func SecretNames(s *Stack) []string {
+	set := map[string]struct{}{}
+	for _, svc := range s.Services {
+		for _, name := range svc.Secrets {
+			set[name] = struct{}{}
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
 }
 
 // ServiceNames returns the service names in sorted order so that rendering,
