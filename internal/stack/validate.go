@@ -73,6 +73,7 @@ func Validate(s *Stack, lim Limits, grants Grants) Errors {
 		validateArgs(&errs, f+".command", svc.Command)
 		validateArgs(&errs, f+".entrypoint", svc.Entrypoint)
 		validateEnv(&errs, f+".environment", svc.Environment)
+		validateSecrets(&errs, f, svc)
 		if e := svc.Expose; e != nil {
 			if _, ok := grants[e.Template]; !ok {
 				errs.add(f+".expose.template", "template %q is not granted to this workspace", e.Template)
@@ -188,6 +189,26 @@ func validateEnv(errs *Errors, f string, env map[string]string) {
 	}
 	if total > maxEnvTotal {
 		errs.add(f, "environment larger than %d bytes", maxEnvTotal)
+	}
+}
+
+// validateSecrets checks the env-var-name -> workspace-secret-name map of one
+// service. f is the service field path (services.<svc>).
+func validateSecrets(errs *Errors, f string, svc Service) {
+	if len(svc.Environment)+len(svc.Secrets) > maxEnvEntries {
+		errs.add(f, "at most %d environment variables and secrets allowed in total", maxEnvEntries)
+	}
+	for _, k := range slices.Sorted(maps.Keys(svc.Secrets)) {
+		kf := f + ".secrets." + k
+		if !envKeyRe.MatchString(k) {
+			errs.add(kf, "key must match ^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+		}
+		if _, dup := svc.Environment[k]; dup {
+			errs.add(kf, "also set in environment")
+		}
+		if !names.ValidSecret(svc.Secrets[k]) {
+			errs.add(kf, "secret name must match ^[a-z][a-z0-9_-]{0,47}$")
+		}
 	}
 }
 

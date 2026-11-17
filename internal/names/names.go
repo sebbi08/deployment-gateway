@@ -21,12 +21,14 @@ var (
 	appRe       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,22}[a-z0-9]$`)
 	serviceRe   = regexp.MustCompile(`^[a-z][a-z0-9]{0,15}$`)
 	templateRe  = regexp.MustCompile(`^[a-z][a-z0-9-]{1,30}$`)
+	secretRe    = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,47}$`)
 )
 
 func ValidWorkspace(s string) bool { return workspaceRe.MatchString(s) }
 func ValidApp(s string) bool       { return appRe.MatchString(s) }
 func ValidService(s string) bool   { return serviceRe.MatchString(s) }
 func ValidTemplate(s string) bool  { return templateRe.MatchString(s) }
+func ValidSecret(s string) bool    { return secretRe.MatchString(s) }
 
 // Container is the container name, compose service key and DNS hostname.
 func Container(ws, app, svc string) string { return ws + "-" + app + "-" + svc }
