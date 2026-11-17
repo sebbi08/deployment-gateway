@@ -131,12 +131,12 @@ env_file:
 
 `format: raw` disables interpolation and quote processing so `$`, quotes and `#` in values are taken literally. The path is computed by the gateway from validated names; agents never influence it. Values never appear in the YAML.
 
-The builder must confirm with the pinned compose binary (integration test using `docker compose config` and a real container) that: raw values round-trip byte-exactly (including `$`, quotes, `#`, `=`, leading/trailing spaces); and a change of env file content alone makes `up` recreate the service (compose resolves `env_file` into the service config hash). If the latter does not hold, add a gateway-owned revision mechanism and update the verifier accordingly.
+Verified on 2026-11-17 with compose v5.1.4 and a real container: raw values arrive byte-exactly (including `$`, `$$`, `${HOME}`, quotes, `#`, `=`, leading/trailing spaces); a change of env file content alone makes `up` recreate the service; a missing file with `required: true` makes compose fail to load the file. An integration test must keep pinning this for the compose version in the Dockerfile. Should a future compose stop recreating on env file changes, add a gateway-owned revision mechanism and update the verifier accordingly.
 
 ### 6.3 Deploy flow (§11)
 
 - **Before pull:** `docker-compose.next.yml` may reference env files that do not exist yet (new service). Create missing ones **empty** so compose can load the file; never modify existing ones before commit, so a deploy that fails before commit leaves the running deployment's env files untouched.
-- **At commit:** in the commit transaction, re-read the referenced values (they may have changed since validation) and replace `app_secret_refs` for the app. If a referenced secret was deleted meanwhile (cannot happen while refs exist, but a first-time reference can race), fail like a validation error.
+- **At commit:** the re-plan in `prepare` (under the workspace mutex) re-reads the referenced values, and the commit transaction replaces `app_secret_refs` for the app. Admin secret mutations (create, set, delete) take the same workspace mutex, so a value cannot change or disappear between that re-plan and the commit.
 - **At rotate:** write the env files of all services with secrets from the committed values (write to a temp file in `secrets/`, fsync, rename), clear `stale` for the app, and remove env files of services that no longer have secrets.
 - Everything after (up, runtime check, health) is unchanged.
 
