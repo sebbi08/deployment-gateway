@@ -3,6 +3,7 @@ package service_test
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -44,7 +45,8 @@ func TestWhoamiListsSecretStates(t *testing.T) {
 	if len(res.Secrets) != 2 || res.Secrets[0] != want[0] || res.Secrets[1] != want[1] {
 		t.Fatalf("secrets = %+v", res.Secrets)
 	}
-	if !strings.Contains(strings.Join(res.Guidance, "\n"), "Never put credentials in environment") {
+	const line = `Never put credentials in environment. Reference a workspace secret instead: "secrets": {"STRIPE_API_KEY": "stripe-prod"}. validate/deploy register unknown names as requested and fail until the operator has set the value in the admin UI; deploy again after that. You never see secret values. When the operator changes a value later, running services pick it up without a redeploy.`
+	if !slices.Contains(res.Guidance, line) {
 		t.Fatalf("guidance lacks secrets line: %v", res.Guidance)
 	}
 	empty, _ := h.svc.Whoami(h.ctx, h.workspace("bob", 0, 0))
