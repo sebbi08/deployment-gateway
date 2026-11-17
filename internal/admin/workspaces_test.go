@@ -125,6 +125,8 @@ type dashboardResp struct {
 	Workspaces []workspaceRow `json:"workspaces"`
 	Critical   []auditDTO     `json:"critical"`
 	Orphans    int            `json:"orphans"`
+
+	RequestedSecrets int `json:"requested_secrets"`
 }
 
 func TestDashboard(t *testing.T) {

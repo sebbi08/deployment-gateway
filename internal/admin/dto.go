@@ -22,6 +22,8 @@ type workspaceRow struct {
 	Quota store.Quota          `json:"quota"`
 	Usage usageDTO             `json:"usage"`
 	Ports service.PortSettings `json:"ports"`
+
+	RequestedSecrets int `json:"requested_secrets"`
 }
 
 type grantDTO struct {
@@ -82,10 +84,22 @@ func (s *Server) row(ctx context.Context, w store.Workspace) (workspaceRow, erro
 	if err != nil {
 		return workspaceRow{}, err
 	}
+	secrets, err := s.opts.Store.ListSecrets(ctx, w.ID)
+	if err != nil {
+		return workspaceRow{}, err
+	}
+	requested := 0
+	for _, sec := range secrets {
+		if !sec.Set {
+			requested++
+		}
+	}
 	return workspaceRow{
 		Name: w.Name, Quota: w.Quota,
 		Usage: usageDTO{Apps: u.Apps, MemoryMB: u.MemoryBytes >> 20, CPUs: u.CPUs},
 		Ports: service.PortSettings{Start: w.PortRangeStart, End: w.PortRangeEnd, BindIP: w.PortBindIP},
+
+		RequestedSecrets: requested,
 	}, nil
 }
 
