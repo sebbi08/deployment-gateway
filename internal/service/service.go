@@ -102,9 +102,10 @@ func (s *Service) own(paths ...string) error {
 	return nil
 }
 
-func (s *Service) workspaceDir(ws string) string { return filepath.Join(s.Root, ws) }
-func (s *Service) appDir(ws, app string) string  { return filepath.Join(s.Root, ws, app) }
-func (s *Service) dataDir(ws, app string) string { return filepath.Join(s.Root, ws, app, "data") }
+func (s *Service) workspaceDir(ws string) string    { return filepath.Join(s.Root, ws) }
+func (s *Service) appDir(ws, app string) string     { return filepath.Join(s.Root, ws, app) }
+func (s *Service) dataDir(ws, app string) string    { return filepath.Join(s.Root, ws, app, "data") }
+func (s *Service) secretsDir(ws, app string) string { return filepath.Join(s.Root, ws, app, "secrets") }
 func (s *Service) composeFile(ws, app string) string {
 	return filepath.Join(s.appDir(ws, app), "docker-compose.yml")
 }

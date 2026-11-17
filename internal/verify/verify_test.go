@@ -198,6 +198,82 @@ func TestVerifyRejectsMutations(t *testing.T) {
 	}
 }
 
+func envEntry(p string, kv ...any) map[string]any {
+	m := map[string]any{"path": p, "required": true, "format": "raw"}
+	for i := 0; i+1 < len(kv); i += 2 {
+		if kv[i+1] == nil {
+			delete(m, kv[i].(string))
+		} else {
+			m[kv[i].(string)] = kv[i+1]
+		}
+	}
+	return m
+}
+
+func TestVerifyEnvFile(t *testing.T) {
+	cases := []struct {
+		name  string
+		entry func(sd string) any
+		want  string // empty = accepted
+	}{
+		{"exact entry", func(sd string) any { return []any{envEntry(sd + "/web.env")} }, ""},
+		{"short syntax", func(sd string) any { return sd + "/web.env" }, "env_file"},
+		{"short list entry", func(sd string) any { return []any{sd + "/web.env"} }, "env_file"},
+		{"two entries", func(sd string) any {
+			return []any{envEntry(sd + "/web.env"), envEntry(sd + "/web.env")}
+		}, "exactly one"},
+		{"other service", func(sd string) any { return []any{envEntry(sd + "/db.env")} }, "path"},
+		{"outside secrets dir", func(sd string) any { return []any{envEntry("/etc/passwd")} }, "path"},
+		{"traversal", func(sd string) any { return []any{envEntry(sd + "/../data/web.env")} }, "path"},
+		{"format missing", func(sd string) any { return []any{envEntry(sd+"/web.env", "format", nil)} }, "format"},
+		{"format not raw", func(sd string) any { return []any{envEntry(sd+"/web.env", "format", "compose")} }, "format"},
+		{"required false", func(sd string) any { return []any{envEntry(sd+"/web.env", "required", false)} }, "required"},
+		{"required missing", func(sd string) any { return []any{envEntry(sd+"/web.env", "required", nil)} }, "required"},
+		{"extra key", func(sd string) any { return []any{envEntry(sd+"/web.env", "foo", "bar")} }, `"foo"`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			doc, p := setup(t)
+			p.SecretsDir = filepath.Join(filepath.Dir(p.DataDir), "secrets")
+			out := mutate(t, doc, func(_, w map[string]any) { w["env_file"] = c.entry(p.SecretsDir) })
+			err := Verify(out, p)
+			if c.want == "" {
+				if err != nil {
+					t.Fatalf("unexpected: %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want error containing %q, got %v", c.want, err)
+			}
+		})
+	}
+}
+
+func TestVerifyEnvFileRejectsEmptySecretsDir(t *testing.T) {
+	doc, p := setup(t)
+	out := mutate(t, doc, func(_, w map[string]any) {
+		w["env_file"] = []any{envEntry("web.env")}
+	})
+	if err := Verify(out, p); err == nil || !strings.Contains(err.Error(), "env_file") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestVerifyEnvFileRejectsSymlinkedSecretsDir(t *testing.T) {
+	doc, p := setup(t)
+	p.SecretsDir = filepath.Join(filepath.Dir(p.DataDir), "secrets")
+	if err := os.Symlink(t.TempDir(), p.SecretsDir); err != nil {
+		t.Fatal(err)
+	}
+	out := mutate(t, doc, func(_, w map[string]any) {
+		w["env_file"] = []any{envEntry(filepath.Join(p.SecretsDir, "web.env"))}
+	})
+	if err := Verify(out, p); err == nil || !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("got %v", err)
+	}
+}
+
 func TestVerifyRejectsPortsWhenWorkspaceHasNoRange(t *testing.T) {
 	doc, p := setup(t)
 	p.PortRangeStart, p.PortRangeEnd = 0, 0
@@ -415,7 +491,7 @@ func consistentService(key string) map[string]any {
 // features that run commands or read host files.
 func TestVerifyRejectsUnlistedServiceKeys(t *testing.T) {
 	doc, p := setup(t)
-	for _, k := range []string{"post_start", "pre_stop", "env_file", "label_file", "dns", "shm_size", "oom_kill_disable", "stop_signal"} {
+	for _, k := range []string{"post_start", "pre_stop", "label_file", "dns", "shm_size", "oom_kill_disable", "stop_signal"} {
 		bad := strings.Replace(doc, "  alice-shop-web:\n", "  alice-shop-web:\n    "+k+": x\n", 1)
 		err := Verify([]byte(bad), p)
 		if err == nil || !strings.Contains(err.Error(), fmt.Sprintf("key %q not allowed", k)) {

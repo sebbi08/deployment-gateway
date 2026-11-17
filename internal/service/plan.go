@@ -104,7 +104,7 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	dataDir := s.dataDir(ws.Name, app)
 	out, err := render.Render(render.Input{
 		Workspace: ws.Name, App: app, Stack: st, Templates: templates,
-		Defaults: defaults, DataDir: dataDir, BindIP: ws.PortBindIP,
+		Defaults: defaults, DataDir: dataDir, SecretsDir: s.secretsDir(ws.Name, app), BindIP: ws.PortBindIP,
 	})
 	var fe *render.FieldError
 	if errors.As(err, &fe) {
@@ -120,7 +120,7 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 		}
 	}
 	pol := verify.Policy{
-		Workspace: ws.Name, App: app, DataDir: dataDir, Networks: nets,
+		Workspace: ws.Name, App: app, DataDir: dataDir, SecretsDir: s.secretsDir(ws.Name, app), Networks: nets,
 		MaxMemoryBytes: lim.MaxMemoryBytes, MaxCPUs: q.MaxCPUs, MaxPids: q.MaxPids,
 		PortRangeStart: ws.PortRangeStart, PortRangeEnd: ws.PortRangeEnd, BindIP: ws.PortBindIP,
 	}
