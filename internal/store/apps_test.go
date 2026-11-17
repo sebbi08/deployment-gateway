@@ -12,14 +12,14 @@ func TestSaveDeploymentAndUsage(t *testing.T) {
 	s := openTest(t)
 	w := newWorkspace(t, s, "alice", 20000, 20099)
 	a, err := s.SaveDeployment(ctx, w.ID, "shop", 256<<20, 0.5, map[string]string{"web": "shop.alice.example.com"},
-		[]PortClaim{{Protocol: "tcp", HostPort: 20001, ContainerPort: 8080, Service: "web"}})
+		[]PortClaim{{Protocol: "tcp", HostPort: 20001, ContainerPort: 8080, Service: "web"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if a.ID == 0 || a.Hosts["web"] != "shop.alice.example.com" || a.MemoryBytes != 256<<20 {
 		t.Fatalf("app = %+v", a)
 	}
-	if _, err := s.SaveDeployment(ctx, w.ID, "blog", 128<<20, 0.25, nil, nil); err != nil {
+	if _, err := s.SaveDeployment(ctx, w.ID, "blog", 128<<20, 0.25, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	u, err := s.WorkspaceUsage(ctx, w.ID, "")
@@ -41,18 +41,18 @@ func TestPortClaimConflicts(t *testing.T) {
 	s := openTest(t)
 	w := newWorkspace(t, s, "alice", 20000, 20099)
 	claim := PortClaim{Protocol: "tcp", HostPort: 20001, ContainerPort: 80, Service: "web"}
-	if _, err := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, []PortClaim{claim}); err != nil {
+	if _, err := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, []PortClaim{claim}, nil); err != nil {
 		t.Fatal(err)
 	}
 	// Same app may re-claim its own port (redeploy).
-	if _, err := s.SaveDeployment(ctx, w.ID, "shop", 2, 0.1, nil, []PortClaim{claim}); err != nil {
+	if _, err := s.SaveDeployment(ctx, w.ID, "shop", 2, 0.1, nil, []PortClaim{claim}, nil); err != nil {
 		t.Fatalf("redeploy own port: %v", err)
 	}
 	conflicts, err := s.PortConflicts(ctx, w.ID, "blog", []PortClaim{claim, {Protocol: "udp", HostPort: 20001}})
 	if err != nil || len(conflicts) != 1 || conflicts[0].App != "shop" {
 		t.Fatalf("conflicts = %+v, %v", conflicts, err)
 	}
-	_, err = s.SaveDeployment(ctx, w.ID, "blog", 1, 0.1, nil, []PortClaim{claim})
+	_, err = s.SaveDeployment(ctx, w.ID, "blog", 1, 0.1, nil, []PortClaim{claim}, nil)
 	var taken *PortTakenError
 	if !errors.As(err, &taken) || taken.Claim.App != "shop" {
 		t.Fatalf("expected PortTakenError, got %v", err)
@@ -61,10 +61,10 @@ func TestPortClaimConflicts(t *testing.T) {
 		t.Fatal("failed SaveDeployment must not leave an app row behind")
 	}
 	// Redeploy shop without the port releases it.
-	if _, err := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, nil); err != nil {
+	if _, err := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, nil, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveDeployment(ctx, w.ID, "blog", 1, 0.1, nil, []PortClaim{claim}); err != nil {
+	if _, err := s.SaveDeployment(ctx, w.ID, "blog", 1, 0.1, nil, []PortClaim{claim}, nil); err != nil {
 		t.Fatalf("port should be free now: %v", err)
 	}
 }
@@ -73,7 +73,7 @@ func TestRecordDeployDeleteAndKeys(t *testing.T) {
 	ctx := context.Background()
 	s := openTest(t)
 	w := newWorkspace(t, s, "alice", 20000, 20099)
-	a, _ := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, []PortClaim{{Protocol: "tcp", HostPort: 20001, ContainerPort: 1, Service: "web"}})
+	a, _ := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, []PortClaim{{Protocol: "tcp", HostPort: 20001, ContainerPort: 1, Service: "web"}}, nil)
 	if err := s.RecordDeploy(ctx, a.ID, "ok"); err != nil {
 		t.Fatal(err)
 	}
@@ -159,10 +159,10 @@ func TestListPortClaimsIsScopedToWorkspace(t *testing.T) {
 	s := openTest(t)
 	alice := newWorkspace(t, s, "alice", 20000, 20099)
 	bob := newWorkspace(t, s, "bob", 20100, 20199)
-	if _, err := s.SaveDeployment(ctx, alice.ID, "shop", 1, 0.1, nil, []PortClaim{{Protocol: "tcp", HostPort: 20001, ContainerPort: 80, Service: "web"}}); err != nil {
+	if _, err := s.SaveDeployment(ctx, alice.ID, "shop", 1, 0.1, nil, []PortClaim{{Protocol: "tcp", HostPort: 20001, ContainerPort: 80, Service: "web"}}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.SaveDeployment(ctx, bob.ID, "blog", 1, 0.1, nil, []PortClaim{{Protocol: "tcp", HostPort: 20101, ContainerPort: 80, Service: "web"}}); err != nil {
+	if _, err := s.SaveDeployment(ctx, bob.ID, "blog", 1, 0.1, nil, []PortClaim{{Protocol: "tcp", HostPort: 20101, ContainerPort: 80, Service: "web"}}, nil); err != nil {
 		t.Fatal(err)
 	}
 	claims, err := s.ListPortClaims(ctx, alice.ID)
@@ -179,7 +179,7 @@ func TestPortConflictsExcludeOnlyTheSameApp(t *testing.T) {
 	alice := newWorkspace(t, s, "alice", 20000, 20099)
 	bob := newWorkspace(t, s, "bob", 20100, 20199)
 	claim := PortClaim{Protocol: "tcp", HostPort: 20101, ContainerPort: 80, Service: "web"}
-	if _, err := s.SaveDeployment(ctx, bob.ID, "shop", 1, 0.1, nil, []PortClaim{claim}); err != nil {
+	if _, err := s.SaveDeployment(ctx, bob.ID, "shop", 1, 0.1, nil, []PortClaim{claim}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if c, err := s.PortConflicts(ctx, bob.ID, "shop", []PortClaim{claim}); err != nil || len(c) != 0 {
@@ -201,7 +201,7 @@ func TestListAppsIsScopedToWorkspace(t *testing.T) {
 		ws   int64
 		name string
 	}{{alice.ID, "shop"}, {bob.ID, "blog"}, {bob.ID, "shop"}} {
-		if _, err := s.SaveDeployment(ctx, a.ws, a.name, 1, 0.1, nil, nil); err != nil {
+		if _, err := s.SaveDeployment(ctx, a.ws, a.name, 1, 0.1, nil, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 	}

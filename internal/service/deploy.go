@@ -277,7 +277,7 @@ func (s *Service) prepare(ctx context.Context, p Principal, app string, st *stac
 		return store.App{}, nil, nil, err
 	}
 	next := s.nextFile(ws.Name, app)
-	appRec, err := s.Store.SaveDeployment(ctx, ws.ID, app, pl.memBytes, pl.cpus, pl.out.Hosts, pl.claims)
+	appRec, err := s.Store.SaveDeployment(ctx, ws.ID, app, pl.memBytes, pl.cpus, pl.out.Hosts, pl.claims, nil)
 	if err != nil {
 		os.Remove(next)
 		var taken *store.PortTakenError
