@@ -26,6 +26,7 @@ type Policy struct {
 	Workspace      string
 	App            string
 	DataDir        string
+	SecretsDir     string
 	Networks       map[string]bool
 	MaxMemoryBytes int64
 	MaxCPUs        float64
@@ -44,7 +45,7 @@ func (v *Violations) addf(format string, args ...any) { *v = append(*v, fmt.Spri
 var (
 	allowedServiceKeys = set("image", "container_name", "hostname", "command", "entrypoint", "environment",
 		"user", "restart", "cap_drop", "security_opt", "read_only", "tmpfs", "mem_limit", "memswap_limit",
-		"cpus", "pids_limit", "logging", "volumes", "ports", "healthcheck", "depends_on", "networks", "labels")
+		"cpus", "pids_limit", "logging", "volumes", "env_file", "ports", "healthcheck", "depends_on", "networks", "labels")
 	forbiddenKeys = set("privileged", "cap_add", "devices", "device_cgroup_rules", "network_mode", "pid", "ipc",
 		"uts", "userns_mode", "cgroup", "cgroup_parent", "runtime", "extra_hosts", "build", "extends", "include",
 		"configs", "secrets", "sysctls", "ulimits", "volumes_from", "links", "external_links", "storage_opt",
@@ -219,6 +220,7 @@ func checkService(key string, raw any, all map[string]any, p Policy, v *Violatio
 		}
 	}
 	checkLogging(key, s["logging"], v)
+	checkEnvFile(key, svc, s["env_file"], p, v)
 	checkVolumes(key, svc, s["volumes"], p, v)
 	checkPorts(key, s["ports"], p, v)
 	checkServiceNetworks(key, s["networks"], p, v)
@@ -298,6 +300,45 @@ func checkVolumes(key, svc string, raw any, p Policy, v *Violations) {
 		}
 		checkNoSymlink(key, src, v)
 	}
+}
+
+// checkEnvFile accepts only the single entry the gateway renders:
+// [{path: <SecretsDir>/<svc>.env, required: true, format: raw}].
+func checkEnvFile(key, svc string, raw any, p Policy, v *Violations) {
+	if raw == nil {
+		return
+	}
+	list, ok := raw.([]any)
+	if !ok || len(list) != 1 {
+		v.addf("%s: env_file must be a list with exactly one entry in long syntax", key)
+		return
+	}
+	m, ok := list[0].(map[string]any)
+	if !ok {
+		v.addf("%s: env_file must use long syntax", key)
+		return
+	}
+	for _, k := range sortedKeys(m) {
+		if k != "path" && k != "required" && k != "format" {
+			v.addf("%s: env_file key %q not allowed", key, k)
+		}
+	}
+	if m["required"] != true {
+		v.addf("%s: env_file required must be true", key)
+	}
+	if m["format"] != "raw" {
+		v.addf("%s: env_file format must be raw", key)
+	}
+	if p.SecretsDir == "" || !filepath.IsAbs(p.SecretsDir) {
+		v.addf("%s: env_file not allowed without an absolute secrets dir", key)
+		return
+	}
+	want := filepath.Join(p.SecretsDir, svc+".env")
+	if got, _ := m["path"].(string); got != want {
+		v.addf("%s: env_file path %q must be %q", key, got, want)
+		return
+	}
+	checkNoSymlink(key, want, v)
 }
 
 // checkNoSymlink resolves the deepest existing ancestor of src and requires
