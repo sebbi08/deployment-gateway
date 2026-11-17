@@ -233,7 +233,9 @@ func TestIntegrationSecrets(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if app.SecretApplyState == "ok" && id() != before {
+		// The container name briefly does not exist during a recreate: tolerate inspect errors.
+		cur, _ := exec.Command("docker", "inspect", "--format", "{{.Id}}", ctr).Output()
+		if cid := strings.TrimSpace(string(cur)); app.SecretApplyState == "ok" && cid != "" && cid != before {
 			break
 		}
 		if time.Now().After(deadline) {
@@ -249,7 +251,7 @@ func TestIntegrationSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("logs: %v", err)
 	}
-	if !strings.Contains(logs.Logs, "***") || strings.Contains(logs.Logs, newValue) {
+	if !strings.Contains(logs.Logs, "***") || strings.Contains(logs.Logs, newValue) || strings.Contains(logs.Logs, value) {
 		t.Fatalf("logs not redacted: %q", logs.Logs)
 	}
 }
