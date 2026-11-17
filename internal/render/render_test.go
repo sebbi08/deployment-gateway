@@ -232,6 +232,51 @@ func TestRenderGolden(t *testing.T) {
 	}
 }
 
+func secretsInput(t *testing.T) Input {
+	t.Helper()
+	in := testInput(t)
+	in.SecretsDir = "/srv/ws/alice/shop/secrets"
+	web := in.Stack.Services["web"]
+	web.Secrets = map[string]string{"DB_PASSWORD": "db-pass", "API_KEY": "api-key"}
+	in.Stack.Services["web"] = web
+	return in
+}
+
+func TestRenderEnvFile(t *testing.T) {
+	doc := parse(t, mustRender(t, secretsInput(t)).YAML)
+	web := service(t, doc, "alice-shop-web")
+	want := []any{map[string]any{"path": "/srv/ws/alice/shop/secrets/web.env", "required": true, "format": "raw"}}
+	if !reflect.DeepEqual(web["env_file"], want) {
+		t.Errorf("env_file = %v, want %v", web["env_file"], want)
+	}
+	env := web["environment"].(map[string]any)
+	for _, k := range []string{"DB_PASSWORD", "API_KEY"} {
+		if _, ok := env[k]; ok {
+			t.Errorf("secret key %s leaked into environment", k)
+		}
+	}
+	if _, ok := service(t, doc, "alice-shop-db")["env_file"]; ok {
+		t.Error("service without secrets has env_file")
+	}
+}
+
+func TestRenderSecretsGolden(t *testing.T) {
+	a := mustRender(t, secretsInput(t)).YAML
+	golden := filepath.Join("testdata", "secrets.golden.yml")
+	if *update {
+		if err := os.WriteFile(golden, a, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("read golden (run with -update once): %v", err)
+	}
+	if !bytes.Equal(a, want) {
+		t.Fatalf("output differs from %s; rerun with -update and review the diff\n%s", golden, a)
+	}
+}
+
 func TestRenderOutputLabelsAreUnescaped(t *testing.T) {
 	in := testInput(t)
 	tp := in.Templates["public-web"]

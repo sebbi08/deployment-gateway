@@ -16,6 +16,7 @@ type composeService struct {
 	Command       []qstr                    `yaml:"command,omitempty"`
 	Entrypoint    []qstr                    `yaml:"entrypoint,omitempty"`
 	Environment   map[string]qstr           `yaml:"environment,omitempty"`
+	EnvFile       []composeEnvFile          `yaml:"env_file,omitempty"`
 	User          string                    `yaml:"user,omitempty"`
 	Restart       string                    `yaml:"restart"`
 	CapDrop       []string                  `yaml:"cap_drop"`
@@ -33,6 +34,14 @@ type composeService struct {
 	DependsOn     map[string]composeDepends `yaml:"depends_on,omitempty"`
 	Networks      []string                  `yaml:"networks"`
 	Labels        map[string]qstr           `yaml:"labels"`
+}
+
+// composeEnvFile is the long env_file syntax; format raw means values are
+// taken literally (no interpolation, quoting or escapes).
+type composeEnvFile struct {
+	Path     string `yaml:"path"`
+	Required bool   `yaml:"required"`
+	Format   string `yaml:"format"`
 }
 
 type composeLogging struct {

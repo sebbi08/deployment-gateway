@@ -24,7 +24,10 @@ type Input struct {
 	Templates map[string]tmpl.Template
 	Defaults  stack.Defaults
 	DataDir   string // <root>/<ws>/<app>/data
-	BindIP    string
+	// SecretsDir is <root>/<ws>/<app>/secrets; env files for services with
+	// secrets live here.
+	SecretsDir string
+	BindIP     string
 }
 
 type PublishedPort struct {
@@ -77,6 +80,9 @@ func Render(in Input) (Output, error) {
 			PidsLimit:     res.Pids,
 			Logging:       composeLogging{Driver: "json-file", Options: map[string]string{"max-size": "10m", "max-file": "3"}},
 			Networks:      []string{privateNet},
+		}
+		if len(svc.Secrets) > 0 {
+			cs.EnvFile = []composeEnvFile{{Path: EnvFilePath(in.SecretsDir, svcName), Required: true, Format: "raw"}}
 		}
 		labels := map[string]string{}
 		if svc.Volume != nil {
