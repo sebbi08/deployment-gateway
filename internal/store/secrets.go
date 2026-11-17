@@ -85,7 +85,11 @@ func (s *Store) RequestSecrets(ctx context.Context, wsID int64, names []string, 
 			if err != nil {
 				return err
 			}
-			if k, _ := res.RowsAffected(); k > 0 {
+			k, err := res.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if k > 0 {
 				count++
 			}
 		}
