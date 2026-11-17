@@ -44,6 +44,26 @@ export interface WorkspaceRow {
   quota: Quota;
   usage: Usage;
   ports: PortSettings;
+  requested_secrets: number;
+}
+
+export interface SecretUse {
+  app: string;
+  service: string;
+  env_key: string;
+  stale: boolean;
+  apply_state: string;
+  apply_error: string;
+}
+
+export interface SecretView {
+  name: string;
+  state: "set" | "requested";
+  created_at: string;
+  updated_at: string;
+  requested_at?: string;
+  requested_by?: string;
+  used_by: SecretUse[];
 }
 
 export interface PortClaim {
@@ -113,6 +133,7 @@ export interface Dashboard {
   workspaces: WorkspaceRow[];
   critical: AuditEntry[];
   orphans: number;
+  requested_secrets: number;
 }
 
 export interface Template {

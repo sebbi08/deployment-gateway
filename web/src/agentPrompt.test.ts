@@ -25,4 +25,5 @@ test("a missing MCP host becomes a visible placeholder", () => {
 test("the prompt tells the agent to use workspace secrets", () => {
   const p = agentPrompt({ agentURL: "https://mcp.example.com", adminURL: "https://a.example.com", workspace: "alice" });
   expect(p).toContain("secrets");
+  expect(p).toContain("without a redeploy");
 });

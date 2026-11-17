@@ -13,6 +13,7 @@ const detail: Detail = {
   folder: "/srv/workspaces/alice",
   templates: [{ id: 1, name: "public-web", host_pattern: "{{app}}.{{workspace}}.apps.example.com", granted: false }],
   tokens: [],
+  requested_secrets: 0,
   apps: [
     {
       app: "shop",
@@ -160,4 +161,16 @@ test("the files tab shows the workspace folder", async () => {
   renderDetail();
   await userEvent.click(await screen.findByRole("tab", { name: "Files" }));
   expect(await screen.findByRole("button", { name: /shop/ })).toBeInTheDocument();
+});
+
+test("the secrets tab label counts requested secrets", async () => {
+  mockApi({ "GET /workspaces/alice": { body: { ...detail, requested_secrets: 2 } }, "GET /workspaces/alice/secrets": { body: [] } });
+  renderDetail();
+  expect(await screen.findByRole("tab", { name: "Secrets (2 requested)" })).toBeInTheDocument();
+});
+
+test("the secrets tab label is plain without requests", async () => {
+  mockApi({ "GET /workspaces/alice": { body: { ...detail, requested_secrets: 0 } }, "GET /workspaces/alice/secrets": { body: [] } });
+  renderDetail();
+  expect(await screen.findByRole("tab", { name: "Secrets" })).toBeInTheDocument();
 });

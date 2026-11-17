@@ -90,3 +90,18 @@ test("truncated files say so", async () => {
   expect(await screen.findByText(/Showing the first 512 KB of 8\.6 MB/)).toBeInTheDocument();
   expect(screen.getByText(/line 1/)).toBeInTheDocument();
 });
+
+test("a secret file shows a placeholder instead of an error", async () => {
+  mockApi({
+    "GET /workspaces/alice/files": (_b, url) => ({
+      body: url.searchParams.get("path")
+        ? { path: "shop/secrets", more: 0, entries: [{ name: "stripe", type: "file", size: 8, mod_time: t }] }
+        : { path: "", more: 0, entries: [{ name: "shop", type: "dir", size: 4096, mod_time: t }] },
+    }),
+    "GET /workspaces/alice/files/content": { status: 422, body: { code: "validation_failed", message: "secret files are not shown" } },
+  });
+  renderWithProviders(<FileExplorer workspace="alice" />);
+  await userEvent.click(await screen.findByRole("button", { name: /shop/ }));
+  await userEvent.click(await screen.findByRole("button", { name: /stripe/ }));
+  expect(await screen.findByText("Secret file — not shown")).toBeInTheDocument();
+});

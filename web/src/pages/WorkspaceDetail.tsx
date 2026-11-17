@@ -11,6 +11,7 @@ import { ConfirmDelete } from "../components/ConfirmDelete";
 import { ErrorAlert } from "../components/ErrorAlert";
 import { FileExplorer } from "../components/FileExplorer";
 import { PortFields } from "../components/PortFields";
+import { SecretsTab } from "../components/SecretsTab";
 import { QuotaFields } from "../components/QuotaFields";
 import type { AppView, WorkspaceDetail as Detail } from "../types";
 
@@ -342,6 +343,9 @@ export function WorkspaceDetail() {
       <Tabs defaultValue="apps" keepMounted={false}>
         <Tabs.List>
           <Tabs.Tab value="apps">Apps ({ws.apps.length})</Tabs.Tab>
+          <Tabs.Tab value="secrets">
+            Secrets{ws.requested_secrets > 0 ? ` (${ws.requested_secrets} requested)` : ""}
+          </Tabs.Tab>
           <Tabs.Tab value="files">Files</Tabs.Tab>
           <Tabs.Tab value="tokens">Tokens</Tabs.Tab>
           <Tabs.Tab value="agent">Agent setup</Tabs.Tab>
@@ -353,6 +357,9 @@ export function WorkspaceDetail() {
         </Tabs.List>
         <Tabs.Panel value="apps" pt="md">
           <AppsTab ws={ws} />
+        </Tabs.Panel>
+        <Tabs.Panel value="secrets" pt="md">
+          <SecretsTab workspace={ws.name} />
         </Tabs.Panel>
         <Tabs.Panel value="files" pt="md">
           <FileExplorer workspace={ws.name} />

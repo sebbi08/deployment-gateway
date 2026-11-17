@@ -1,7 +1,7 @@
 import { Alert, Badge, Box, Button, Code, Grid, Group, Loader, Paper, ScrollArea, Stack, Text, UnstyledButton } from "@mantine/core";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
-import { api } from "../api";
+import { ApiError, api } from "../api";
 import type { FileEntry } from "../types";
 import { ErrorAlert } from "./ErrorAlert";
 
@@ -17,7 +17,9 @@ export function formatBytes(n: number): string {
   return `${v.toFixed(1)} ${units[i]}`;
 }
 
-const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
+const isSecretFileError = (e: unknown) => e instanceof ApiError && e.status === 422 && e.message === "secret files are not shown";
+
+const join =(dir: string, name: string) => (dir ? `${dir}/${name}` : name);
 const indent = (depth: number) => depth * 16 + 4;
 
 interface TreeProps {
@@ -141,7 +143,8 @@ function FileViewer({ workspace, path }: { workspace: string; path: string }) {
         )}
       </Group>
       {q.isPending && <Loader size="sm" />}
-      {q.isError && <ErrorAlert error={q.error} />}
+      {q.isError && isSecretFileError(q.error) && <Text c="dimmed">Secret file — not shown</Text>}
+      {q.isError && !isSecretFileError(q.error) && <ErrorAlert error={q.error} />}
       {q.data?.binary && <Text c="dimmed">Binary file, {formatBytes(q.data.size)}. Content is not shown.</Text>}
       {q.data && !q.data.binary && (
         <>
