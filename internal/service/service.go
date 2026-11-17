@@ -68,6 +68,9 @@ type Service struct {
 	// containers must not carry (RESERVED_LABEL_PREFIXES).
 	ExtraReservedPrefixes []string
 	Logger                *slog.Logger
+	// ApplyLockWait bounds how long a secret apply waits for the app lock
+	// (DEPLOY_TIMEOUT); on timeout the app stays stale.
+	ApplyLockWait time.Duration
 
 	wsLocks sync.Map // workspace name -> *sync.Mutex
 	// adminMu serialises admin changes whose uniqueness checks compare with
@@ -75,11 +78,16 @@ type Service struct {
 	// always taken before a workspace mutex.
 	adminMu sync.Mutex
 	disk    *diskCache
+	// applies queues secret apply jobs; applyPoll is the app lock poll
+	// interval.
+	applies   applyQueue
+	applyPoll time.Duration
 }
 
 func New(st *store.Store, c Compose, d Docker, root string) *Service {
 	return &Service{Store: st, Compose: c, Docker: d, Root: root, Chown: os.Lchown,
-		Logger: slog.Default(), disk: newDiskCache(10 * time.Minute)}
+		Logger: slog.Default(), disk: newDiskCache(10 * time.Minute),
+		ApplyLockWait: 5 * time.Minute, applyPoll: 500 * time.Millisecond}
 }
 
 // Owner is a numeric uid/gid pair.

@@ -92,6 +92,17 @@ func (s *Service) appViews(ctx context.Context, ws store.Workspace) ([]AppView, 
 	if err != nil {
 		return nil, err
 	}
+	refs, err := s.Store.ListSecretRefs(ctx, ws.ID)
+	if err != nil {
+		return nil, err
+	}
+	stale := map[string][]string{}
+	for _, r := range refs {
+		if r.Stale {
+			stale[r.App] = append(stale[r.App], r.Service+"."+r.EnvKey)
+		}
+	}
+	var mask func(string) string
 	out := []AppView{}
 	for _, a := range apps {
 		var appClaims []store.PortClaim
@@ -104,7 +115,14 @@ func (s *Service) appViews(ctx context.Context, ws store.Workspace) ([]AppView, 
 		if err != nil {
 			return nil, err
 		}
-		v := AppView{App: a.Name, Services: st.Services, DiskBytes: s.disk.usage(s.appDir(ws.Name, a.Name)), LastDeployResult: a.LastDeployResult}
+		v := AppView{App: a.Name, Services: st.Services, DiskBytes: s.disk.usage(s.appDir(ws.Name, a.Name)), LastDeployResult: a.LastDeployResult,
+			StaleSecrets: stale[a.Name]}
+		if a.SecretApplyError != "" {
+			if mask == nil {
+				mask = s.masker(ctx, ws.ID)
+			}
+			v.SecretApplyError = s.sanitize(ws.Name, mask(a.SecretApplyError))
+		}
 		if a.LastDeployAt != nil {
 			v.LastDeployAt = a.LastDeployAt.UTC().Format(time.RFC3339)
 		}
