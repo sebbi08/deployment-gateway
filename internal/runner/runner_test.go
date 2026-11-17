@@ -85,6 +85,25 @@ func TestDownRestartStopArgv(t *testing.T) {
 	}
 }
 
+func TestRecreateArgv(t *testing.T) {
+	bin, dir := fakeCompose(t, "")
+	r := New(Options{Bin: bin, Timeout: 300 * time.Second, Concurrency: 1})
+	if _, err := r.Recreate(context.Background(), "/f.yml", "dg-a-b", []string{"a-b-web", "a-b-worker"}); err != nil {
+		t.Fatal(err)
+	}
+	want := "-f\n/f.yml\n-p\ndg-a-b\nup\n-d\n--pull\nnever\n--no-deps\n--wait\n--wait-timeout\n300\na-b-web\na-b-worker\n"
+	if got := read(t, dir+"/args"); got != want {
+		t.Fatalf("args = %q, want %q", got, want)
+	}
+	os.Remove(dir + "/args")
+	if _, err := r.Recreate(context.Background(), "/f.yml", "dg-a-b", nil); err == nil {
+		t.Fatal("empty services must error")
+	}
+	if _, err := os.Stat(dir + "/args"); err == nil {
+		t.Fatal("compose ran for empty services")
+	}
+}
+
 func TestFailureReturnsOutput(t *testing.T) {
 	bin, _ := fakeCompose(t, "echo 'pull access denied' >&2; exit 1")
 	r := New(Options{Bin: bin, Timeout: time.Minute, Concurrency: 1})

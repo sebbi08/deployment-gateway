@@ -109,6 +109,18 @@ func (r *Runner) Up(ctx context.Context, file, project string) (string, error) {
 		"--wait", "--wait-timeout", strconv.Itoa(int(r.opts.Timeout.Seconds())))
 }
 
+// Recreate recreates only the given compose services (keys, not container
+// names) from the current compose file, without pulling or touching
+// dependencies.
+func (r *Runner) Recreate(ctx context.Context, file, project string, services []string) (string, error) {
+	if len(services) == 0 {
+		return "", errors.New("recreate: no services given")
+	}
+	args := []string{"up", "-d", "--pull", "never", "--no-deps",
+		"--wait", "--wait-timeout", strconv.Itoa(int(r.opts.Timeout.Seconds()))}
+	return r.run(ctx, file, project, append(args, services...)...)
+}
+
 func (r *Runner) Down(ctx context.Context, file, project string) (string, error) {
 	return r.run(ctx, file, project, "down", "-v", "--remove-orphans")
 }
