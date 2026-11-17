@@ -52,7 +52,9 @@ export interface SecretUse {
   service: string;
   env_key: string;
   stale: boolean;
+  /** The app's last secret apply: "" | running | ok | skipped | failed | interrupted (reset by a deploy). */
   apply_state: string;
+  /** Why that apply skipped or failed (masked); empty unless the app has stale refs. */
   apply_error: string;
 }
 

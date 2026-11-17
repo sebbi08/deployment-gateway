@@ -3,7 +3,7 @@ import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api } from "../api";
-import type { SecretView } from "../types";
+import type { SecretUse, SecretView } from "../types";
 import { ErrorAlert } from "./ErrorAlert";
 
 const STALE_TIP =
@@ -18,11 +18,34 @@ function ago(t: string | undefined): string {
   return `${Math.floor(s / 86400)} d ago`;
 }
 
+const APPLY_STATE: Record<string, string> = {
+  running: "Updating",
+  skipped: "Update skipped",
+  failed: "Update failed",
+  interrupted: "Update interrupted",
+};
+
+/** Why a stale use still has the old value, from the app's last apply status. */
+function applyStatus(u: SecretUse): string {
+  const label = APPLY_STATE[u.apply_state] ?? "";
+  if (label && u.apply_error) return `${label}: ${u.apply_error}`;
+  return label || u.apply_error;
+}
+
+/** While a use is stale a background update may be running: poll until it clears. */
+function staleRefetch(data: SecretView[] | undefined): number | false {
+  return data?.some((s) => s.used_by.some((u) => u.stale)) ? 5000 : false;
+}
+
 type Dialog = { kind: "new" } | { kind: "set"; secret: SecretView } | { kind: "delete"; secret: SecretView };
 
 export function SecretsTab({ workspace }: { workspace: string }) {
   const queryClient = useQueryClient();
-  const q = useQuery({ queryKey: ["secrets", workspace], queryFn: () => api.secrets(workspace) });
+  const q = useQuery({
+    queryKey: ["secrets", workspace],
+    queryFn: () => api.secrets(workspace),
+    refetchInterval: (query) => staleRefetch(query.state.data),
+  });
   const [dialog, setDialog] = useState<Dialog | null>(null);
   const [name, setName] = useState("");
   const [value, setValue] = useState("");
@@ -128,20 +151,30 @@ export function SecretsTab({ workspace }: { workspace: string }) {
                       </Text>
                     ) : (
                       <Stack gap={2}>
-                        {s.used_by.map((u) => (
-                          <Group key={`${u.app}/${u.service}/${u.env_key}`} gap="xs">
-                            <Text size="sm" ff="monospace">
-                              {u.app}/{u.service} {u.env_key}
-                            </Text>
-                            {u.stale && (
-                              <Tooltip label={STALE_TIP} multiline w={320} withArrow>
-                                <Badge color="yellow" variant="light">
-                                  stale
-                                </Badge>
-                              </Tooltip>
-                            )}
-                          </Group>
-                        ))}
+                        {s.used_by.map((u) => {
+                          const status = u.stale ? applyStatus(u) : "";
+                          return (
+                            <div key={`${u.app}/${u.service}/${u.env_key}`}>
+                              <Group gap="xs">
+                                <Text size="sm" ff="monospace">
+                                  {u.app}/{u.service} {u.env_key}
+                                </Text>
+                                {u.stale && (
+                                  <Tooltip label={STALE_TIP} multiline w={320} withArrow>
+                                    <Badge color="yellow" variant="light">
+                                      stale
+                                    </Badge>
+                                  </Tooltip>
+                                )}
+                              </Group>
+                              {status && (
+                                <Text size="xs" c="dimmed" lineClamp={3} title={status} style={{ whiteSpace: "pre-wrap" }}>
+                                  {status}
+                                </Text>
+                              )}
+                            </div>
+                          );
+                        })}
                       </Stack>
                     )}
                   </Table.Td>
