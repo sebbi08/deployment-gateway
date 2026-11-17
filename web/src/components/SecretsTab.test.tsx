@@ -13,7 +13,7 @@ const secrets: SecretView[] = [
       { app: "admin", service: "web", env_key: "STRIPE", stale: false, apply_state: "applied", apply_error: "" },
     ],
   },
-  { name: "unused", state: "set", created_at: "2026-11-01T10:00:00Z", updated_at: "2026-11-02T10:00:00Z", used_by: [] },
+  { name: "unused", state: "set", created_at: "2026-11-01T10:00:00Z", updated_at: "2026-11-02T10:00:00Z", requested_by: "agent-1", used_by: [] },
 ];
 
 function setup(extra: Record<string, any> = {}) {
@@ -30,7 +30,8 @@ test("a requested secret shows a Set button and who asked", async () => {
   expect(within(r).getByRole("button", { name: "Set" })).toBeInTheDocument();
   expect(within(r).getByText(/asked by agent-1/)).toBeInTheDocument();
   const s = await row("stripe");
-  expect(within(s).queryByText(/asked by/)).not.toBeInTheDocument();
+  const u = await row("unused");
+  expect(within(u).queryByText(/asked by/)).not.toBeInTheDocument();
   expect(within(s).getByRole("button", { name: "Replace" })).toBeInTheDocument();
 });
 
@@ -40,6 +41,8 @@ test("the set modal is an empty password field and saving shows the updated apps
   const input = await screen.findByLabelText(/^Value/);
   expect(input).toHaveAttribute("type", "password");
   expect(input).toHaveValue("");
+  expect(within(screen.getByRole("dialog")).queryAllByRole("button", { name: /visib|show|reveal|hide/i })).toHaveLength(0);
+  expect(input.parentElement?.querySelector("button")).toBeNull();
   await userEvent.type(input, "hunter2");
   await userEvent.click(screen.getByRole("button", { name: "Save" }));
   expect(await screen.findByText("Updating: shop, admin")).toBeInTheDocument();

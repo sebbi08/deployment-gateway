@@ -19,7 +19,7 @@ export function formatBytes(n: number): string {
 
 const isSecretFileError = (e: unknown) => e instanceof ApiError && e.status === 422 && e.message === "secret files are not shown";
 
-const join =(dir: string, name: string) => (dir ? `${dir}/${name}` : name);
+const join = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
 const indent = (depth: number) => depth * 16 + 4;
 
 interface TreeProps {

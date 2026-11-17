@@ -1,4 +1,4 @@
-import { Badge, Button, Group, Modal, PasswordInput, Stack, Table, Text, TextInput, Tooltip } from "@mantine/core";
+import { Badge, Button, Group, Modal, Stack, Table, Text, TextInput, Tooltip } from "@mantine/core";
 import { notifications } from "@mantine/notifications";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -192,11 +192,11 @@ export function SecretsTab({ workspace }: { workspace: string }) {
           <Stack>
             <ErrorAlert error={create.error} />
             <TextInput label="Name" value={name} onChange={(e) => setName(e.currentTarget.value)} autoComplete="off" required />
-            <PasswordInput
+            <TextInput
+              type="password"
               label="Value"
               value={value}
               onChange={(e) => setValue(e.currentTarget.value)}
-              visibilityToggleIcon={() => null}
               autoComplete="new-password"
               required
             />
@@ -221,11 +221,11 @@ export function SecretsTab({ workspace }: { workspace: string }) {
           >
             <Stack>
               <ErrorAlert error={set.error} />
-              <PasswordInput
+              <TextInput
+              type="password"
                 label="Value"
                 value={value}
                 onChange={(e) => setValue(e.currentTarget.value)}
-                visibilityToggleIcon={() => null}
                 autoComplete="new-password"
                 data-autofocus
                 required
