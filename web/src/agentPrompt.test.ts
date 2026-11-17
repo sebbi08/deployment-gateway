@@ -21,3 +21,8 @@ test("a missing MCP host becomes a visible placeholder", () => {
   const p = agentPrompt({ agentURL: "", adminURL: "https://a.example.com", workspace: "alice" });
   expect(p).toContain("https://<MCP_HOST>/mcp");
 });
+
+test("the prompt tells the agent to use workspace secrets", () => {
+  const p = agentPrompt({ agentURL: "https://mcp.example.com", adminURL: "https://a.example.com", workspace: "alice" });
+  expect(p).toContain("secrets");
+});

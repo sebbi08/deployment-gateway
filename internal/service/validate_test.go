@@ -27,6 +27,32 @@ func TestWhoami(t *testing.T) {
 	}
 }
 
+func TestWhoamiListsSecretStates(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 0, 0)
+	if err := h.st.CreateSecret(h.ctx, p.Workspace.ID, "stripe-prod", "sk_live_x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.RequestSecrets(h.ctx, p.Workspace.ID, []string{"mail-key"}, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.svc.Whoami(h.ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []service.SecretState{{Name: "mail-key", State: "requested"}, {Name: "stripe-prod", State: "set"}}
+	if len(res.Secrets) != 2 || res.Secrets[0] != want[0] || res.Secrets[1] != want[1] {
+		t.Fatalf("secrets = %+v", res.Secrets)
+	}
+	if !strings.Contains(strings.Join(res.Guidance, "\n"), "Never put credentials in environment") {
+		t.Fatalf("guidance lacks secrets line: %v", res.Guidance)
+	}
+	empty, _ := h.svc.Whoami(h.ctx, h.workspace("bob", 0, 0))
+	if empty.Secrets == nil {
+		t.Fatal("secrets must be an empty list, not null")
+	}
+}
+
 // list_templates shows only the templates granted to the workspace.
 func TestListTemplates(t *testing.T) {
 	h := newHarness(t)

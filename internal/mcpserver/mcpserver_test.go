@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -91,6 +92,18 @@ func TestToolsOverStreamableHTTP(t *testing.T) {
 	want := []string{"delete", "deploy", "list", "list_templates", "logs", "restart", "stop", "validate", "whoami"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("tools = %v", names)
+	}
+
+	for _, tl := range tools.Tools {
+		if tl.Name == "deploy" {
+			b, _ := json.Marshal(tl.InputSchema)
+			if !strings.Contains(string(b), "secrets") {
+				t.Fatalf("deploy schema lacks secrets: %s", b)
+			}
+		}
+	}
+	if !strings.Contains(instructions, "secrets") {
+		t.Fatal("instructions lack secrets")
 	}
 
 	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "whoami", Arguments: map[string]any{}})

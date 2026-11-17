@@ -49,6 +49,13 @@ func TestConfiguredURLs(t *testing.T) {
 	}
 }
 
+func TestMentionsSecrets(t *testing.T) {
+	body := get(t, Options{AgentURL: "https://mcp.example.com"}, nil).Body.String()
+	if !strings.Contains(body, "&#34;secrets&#34;") && !strings.Contains(body, `"secrets"`) {
+		t.Error("page lacks secrets example")
+	}
+}
+
 func TestDerivedURL(t *testing.T) {
 	trusted := []netip.Prefix{netip.MustParsePrefix("10.0.0.1/32")}
 	cases := []struct {

@@ -30,6 +30,8 @@ Steps:
 3. Verify the connection by calling the whoami tool; it must report workspace "${workspace}". If the tools only become available after a restart of the client, tell me.
 4. Before deploying, follow the workflow from the guide: whoami -> list_templates -> validate -> deploy.
 
+Never put credentials in environment variables of a deployed app. Reference a workspace secret instead, in the service's "secrets" (env var -> secret name), e.g. "secrets": {"STRIPE_API_KEY": "stripe-prod"}. Unknown names are registered as requested; ask me to set the value in the admin UI. You never see secret values.
+
 If the token is rejected (HTTP 401), ask me for a new one; tokens are managed in the admin UI at ${admin}/workspaces/${encodeURIComponent(workspace)}.
 `;
 }
