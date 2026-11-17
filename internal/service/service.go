@@ -20,6 +20,7 @@ import (
 type Compose interface {
 	Pull(ctx context.Context, file, project string) (string, error)
 	Up(ctx context.Context, file, project string) (string, error)
+	Recreate(ctx context.Context, file, project string, services []string) (string, error)
 	Down(ctx context.Context, file, project string) (string, error)
 	Restart(ctx context.Context, file, project, service string) (string, error)
 	Stop(ctx context.Context, file, project, service string) (string, error)

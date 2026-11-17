@@ -38,6 +38,7 @@ type FakeCompose struct {
 	OnStop     func(project, service string)
 	OnRestart  func(project, service string)
 	AfterUp    func()
+	OnRecreate func(file, project string, services []string) error
 }
 
 func (f *FakeCompose) record(s string) {
@@ -77,6 +78,20 @@ func (f *FakeCompose) Up(ctx context.Context, file, project string) (string, err
 	}
 	if f.AfterUp != nil {
 		f.AfterUp()
+	}
+	return f.UpOut, nil
+}
+
+func (f *FakeCompose) Recreate(ctx context.Context, file, project string, services []string) (string, error) {
+	f.record("recreate " + project + " " + strings.Join(services, ","))
+	f.observe("recreate", ctx)
+	if f.UpErr != nil {
+		return f.UpOut, f.UpErr
+	}
+	if f.OnRecreate != nil {
+		if err := f.OnRecreate(file, project, services); err != nil {
+			return "", err
+		}
 	}
 	return f.UpOut, nil
 }
