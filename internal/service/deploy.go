@@ -24,6 +24,9 @@ func (s *Service) Validate(ctx context.Context, p Principal, in DeployInput) (re
 	if err != nil {
 		return ValidateResult{}, err
 	}
+	if err := s.requestSecrets(ctx, ws, in.App, &in.Stack); err != nil {
+		return ValidateResult{}, err
+	}
 	pl, err := s.plan(ctx, ws, in.App, &in.Stack)
 	if err != nil {
 		return ValidateResult{}, err
@@ -62,9 +65,10 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 	bg := context.WithoutCancel(ctx)
 	if out, err := s.Compose.Pull(bg, next, project); err != nil {
 		os.Remove(next)
-		msg := "pulling images failed: " + s.sanitize(ws.Name, err.Error()) + "\n" + s.sanitize(ws.Name, out) +
+		mask := s.masker(bg, ws.ID)
+		msg := "pulling images failed: " + s.sanitize(ws.Name, mask(err.Error())) + "\n" + s.sanitize(ws.Name, mask(out)) +
 			"\nNothing was changed; the running deployment is untouched."
-		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: out}
+		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: mask(out)}
 	}
 	if err := s.checkImageLabels(bg, staged); err != nil {
 		os.Remove(next)
@@ -98,7 +102,7 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		}
 		s.removeVolumes(bg, volsBefore, nil)
 		_ = s.Store.RecordDeploy(bg, appRec.ID, CodeSecurity)
-		return AppStatus{}, &Error{Code: CodeSecurity, Message: msg, detail: detail + " | " + downOut, critical: true}
+		return AppStatus{}, &Error{Code: CodeSecurity, Message: msg, detail: s.masker(bg, ws.ID)(detail + " | " + downOut), critical: true}
 	}
 	if upErr == nil {
 		// Do not trust compose's exit code alone: --wait can return 0 while a
@@ -114,15 +118,23 @@ func (s *Service) Deploy(ctx context.Context, p Principal, in DeployInput) (res 
 		if prev != nil {
 			_ = s.Store.RaiseReservation(bg, appRec.ID, prev.MemoryBytes, prev.CPUs)
 		}
-		msg := "deployment failed: " + upErr.Error() + "\n" + s.sanitize(ws.Name, out) + s.failureLogs(bg, ws.Name, app) + s.prevHint(ws.Name, app)
-		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: out}
+		mask := s.masker(bg, ws.ID)
+		msg := "deployment failed: " + mask(upErr.Error()) + "\n" + s.sanitize(ws.Name, mask(out)) + s.failureLogs(bg, ws.Name, app, mask) + s.prevHint(ws.Name, app)
+		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: msg, detail: mask(out)}
 	}
 	if err := s.Store.RecordDeploy(bg, appRec.ID, "ok"); err != nil {
 		return AppStatus{}, err
 	}
 	// Volumes of replaced or removed containers that nothing mounts any more.
 	s.removeVolumes(bg, volsBefore, s.appVolumes(bg, ws.Name, app))
-	return s.status(bg, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
+	res, err = s.status(bg, ws, app, appRec.Hosts, pl.claims, stack.ServiceNames(pl.stack))
+	if err != nil {
+		return AppStatus{}, err
+	}
+	for i := range res.Services {
+		res.Services[i].SecretEnv = secretEnv(pl.stack, res.Services[i].Service)
+	}
+	return res, nil
 }
 
 // unhealthyServices lists planned services without a running container, or
@@ -225,10 +237,15 @@ func (s *Service) stage(ctx context.Context, p Principal, app string, st *stack.
 
 // planLocked plans under the workspace mutex with the current workspace row.
 // DeleteWorkspace holds the same mutex; the workspace may have been deleted
-// or the token revoked since the request was authenticated.
+// or the token revoked since the request was authenticated. Unknown secret
+// names are requested first (a secret may also have been deleted during
+// pull), so plan reports them as unset.
 func (s *Service) planLocked(ctx context.Context, p Principal, app string, st *stack.Stack) (*planned, store.Workspace, error) {
 	ws, err := s.current(ctx, p)
 	if err != nil {
+		return nil, store.Workspace{}, err
+	}
+	if err := s.requestSecrets(ctx, ws, app, st); err != nil {
 		return nil, store.Workspace{}, err
 	}
 	pl, err := s.plan(ctx, ws, app, st)
@@ -277,7 +294,7 @@ func (s *Service) prepare(ctx context.Context, p Principal, app string, st *stac
 		return store.App{}, nil, nil, err
 	}
 	next := s.nextFile(ws.Name, app)
-	appRec, err := s.Store.SaveDeployment(ctx, ws.ID, app, pl.memBytes, pl.cpus, pl.out.Hosts, pl.claims, nil)
+	appRec, err := s.Store.SaveDeployment(ctx, ws.ID, app, pl.memBytes, pl.cpus, pl.out.Hosts, pl.claims, pl.refs)
 	if err != nil {
 		os.Remove(next)
 		var taken *store.PortTakenError
@@ -289,6 +306,11 @@ func (s *Service) prepare(ctx context.Context, p Principal, app string, st *stac
 	// Persist "pending" so a lost "failed" update can never make the next
 	// deploy rotate a never-successful render into prev.
 	if err := s.Store.RecordDeploy(context.WithoutCancel(ctx), appRec.ID, "pending"); err != nil {
+		return store.App{}, nil, nil, err
+	}
+	// The values were read by the re-plan above under the workspace mutex,
+	// which admin secret changes take too; the refs just committed match.
+	if err := s.writeEnvFiles(ws.Name, app, pl); err != nil {
 		return store.App{}, nil, nil, err
 	}
 	// The current file never disappears: prev is a durable copy, and next
@@ -325,6 +347,9 @@ func (s *Service) prepareDirs(ws, app string, st *stack.Stack) error {
 	}
 	// Re-applied on every deploy so existing folders follow FILE_OWNER changes.
 	if err := s.own(s.workspaceDir(ws), s.appDir(ws, app), data); err != nil {
+		return err
+	}
+	if err := s.ensureEnvFiles(ws, app, st); err != nil {
 		return err
 	}
 	for _, name := range stack.ServiceNames(st) {
@@ -423,8 +448,9 @@ func (s *Service) status(ctx context.Context, ws store.Workspace, app string, ho
 	return res, nil
 }
 
-// failureLogs returns the last log lines of containers that are not healthy.
-func (s *Service) failureLogs(ctx context.Context, ws, app string) string {
+// failureLogs returns the last log lines of containers that are not healthy,
+// with secret values masked.
+func (s *Service) failureLogs(ctx context.Context, ws, app string, mask func(string) string) string {
 	containers, err := s.Docker.ProjectContainers(ctx, ws, app)
 	if err != nil {
 		return ""
@@ -438,7 +464,7 @@ func (s *Service) failureLogs(ctx context.Context, ws, app string) string {
 		if err != nil {
 			continue
 		}
-		fmt.Fprintf(&b, "\n--- %s (%s) last log lines ---\n%s", c.Labels[names.LabelService], c.State, s.sanitize(ws, logs))
+		fmt.Fprintf(&b, "\n--- %s (%s) last log lines ---\n%s", c.Labels[names.LabelService], c.State, s.sanitize(ws, mask(logs)))
 	}
 	return b.String()
 }

@@ -24,6 +24,10 @@ type planned struct {
 	memBytes int64
 	cpus     float64
 	claims   []store.PortClaim
+	// secretValues holds the referenced secret values (service -> env key
+	// -> value) read during planning; refs are the matching secret refs.
+	secretValues map[string]map[string]string
+	refs         []store.SecretRefInput
 	// imagePrefixes / runtimePrefixes are the reserved label namespaces
 	// checked on image LABELs before up and on container labels after up.
 	imagePrefixes   []string
@@ -76,6 +80,13 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	}
 	if errs := stack.Validate(st, lim, grants); errs != nil {
 		return nil, &Error{Code: CodeValidation, Message: "stack validation failed", Fields: errs}
+	}
+	secrets, serrs, err := s.resolveSecrets(ctx, ws, st)
+	if err != nil {
+		return nil, err
+	}
+	if serrs != nil {
+		return nil, &Error{Code: CodeValidation, Message: "stack validation failed", Fields: serrs}
 	}
 	defaults := stack.Defaults{MemoryBytes: q.DefaultMemoryMB << 20, CPUs: q.DefaultCPUs, Pids: q.DefaultPids}
 	mem, cpus := stack.Totals(st, defaults)
@@ -133,6 +144,8 @@ func (s *Service) plan(ctx context.Context, ws store.Workspace, app string, st *
 	}
 	return &planned{app: app, stack: st, out: out, policy: pol, defaults: defaults, memBytes: mem, cpus: cpus,
 		claims:          claimsFrom(app, out.Ports),
+		secretValues:    secrets.values,
+		refs:            secrets.refs,
 		imagePrefixes:   reservedPrefixes(slices.Concat(fixedImagePrefixes, s.ExtraReservedPrefixes), all),
 		runtimePrefixes: reservedPrefixes(slices.Concat(fixedRuntimePrefixes, s.ExtraReservedPrefixes), all)}, nil
 }
@@ -168,7 +181,7 @@ func (pl *planned) servicePlans(ws string) []ServicePlan {
 		r := stack.Effective(pl.stack.Services[svc], pl.defaults)
 		out = append(out, ServicePlan{
 			Service: svc, InternalHost: names.Container(ws, pl.app, svc), URL: hostURL(pl.out.Hosts[svc]),
-			Ports: portsFor(pl.claims, svc), MemoryMB: r.MemoryBytes >> 20, CPUs: r.CPUs,
+			Ports: portsFor(pl.claims, svc), MemoryMB: r.MemoryBytes >> 20, CPUs: r.CPUs, SecretEnv: secretEnv(pl.stack, svc),
 		})
 	}
 	return out

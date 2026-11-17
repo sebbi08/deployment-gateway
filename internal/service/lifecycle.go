@@ -55,7 +55,8 @@ func (s *Service) lifecycle(ctx context.Context, ws store.Workspace, app, svc st
 	// app lock is held meanwhile.
 	ctx = context.WithoutCancel(ctx)
 	if out, err := op(ctx, s.composeFile(ws.Name, app), names.Project(ws.Name, app), target); err != nil {
-		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: err.Error() + "\n" + s.sanitize(ws.Name, out), detail: out}
+		mask := s.masker(ctx, ws.ID)
+		return AppStatus{}, &Error{Code: CodeDeployFailed, Message: mask(err.Error()) + "\n" + s.sanitize(ws.Name, mask(out)), detail: mask(out)}
 	}
 	claims, err := s.Store.ListPortClaims(ctx, ws.ID)
 	if err != nil {
