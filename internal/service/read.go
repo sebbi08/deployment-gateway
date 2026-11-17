@@ -23,7 +23,7 @@ var guidance = []string{
 	"The root filesystem is read-only and /tmp is a tmpfs. Set writable_rootfs: true if the image must write elsewhere, or use a volume.",
 	"Use validate before deploy to see hostnames, URLs, published ports and resource totals without starting anything.",
 	"Environment values are passed literally; $ is never interpolated.",
-	`Never put credentials in environment. Reference a workspace secret instead: "secrets": {"STRIPE_API_KEY": "stripe-prod"}. validate/deploy register unknown names as requested; ask the operator to set the value in the admin UI. You never see secret values; redeploy is not needed after the operator changes one.`,
+	`Never put credentials in environment. Reference a workspace secret instead: "secrets": {"STRIPE_API_KEY": "stripe-prod"}. validate/deploy register unknown names as requested and fail until the operator has set the value in the admin UI; deploy again after that. You never see secret values. When the operator changes a value later, running services pick it up without a redeploy.`,
 }
 
 func (s *Service) Whoami(ctx context.Context, p Principal) (res WhoamiResult, err error) {

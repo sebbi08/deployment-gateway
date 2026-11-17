@@ -171,8 +171,8 @@ published ports, the container naming scheme and deployment guidance. Read the g
           "writable_rootfs": true, "healthcheck": {"command": ["pg_isready"]}}
 }}}</code></pre>
 <p><strong>Secrets</strong>: never put credentials in <code>environment</code>. Reference a workspace secret by name in <code>secrets</code>
-(env var to secret name). <code>validate</code>/<code>deploy</code> register unknown names as requested; ask the operator to set the value in the admin UI.
-You never see secret values, and no redeploy is needed after the operator changes one; <code>whoami</code> lists the secret names and their state.</p>
+(env var to secret name). <code>validate</code>/<code>deploy</code> register unknown names as requested and fail until the operator has set the value in the admin UI; deploy again after that.
+You never see secret values. When the operator changes a value later, running services pick it up without a redeploy; <code>whoami</code> lists the secret names and their state.</p>
 <p class="muted">Replace <code>&lt;workspace&gt;</code> with your workspace name from <code>whoami</code>, <code>public-web</code> with a template
 from <code>list_templates</code>, and <code>change-me</code> with a real secret.</p>
 </main>
