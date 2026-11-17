@@ -86,6 +86,36 @@ func TestSecretsValidation(t *testing.T) {
 	}
 }
 
+// An operator who pastes a value into the name field must not find it in
+// the audit log: invalid names are audited as "<invalid>".
+func TestSecretsInvalidNameNotAudited(t *testing.T) {
+	const pasted = "Sk_Live_Pasted-Value-123"
+	e := newEnv(t, false, builtUI)
+	c := e.login(t)
+	e.do("POST", "/api/admin/workspaces", workspaceBody("alice"), c)
+	if w := e.do("POST", secretBase, map[string]string{"name": pasted, "value": "v"}, c); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("create: %d %s", w.Code, w.Body.String())
+	}
+	if w := e.do("PUT", secretBase+"/"+pasted, map[string]string{"value": "v"}, c); w.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("set: %d %s", w.Code, w.Body.String())
+	}
+	if w := e.do("POST", secretBase+"/"+pasted+"/apply", nil, c); w.Code != http.StatusNotFound {
+		t.Fatalf("apply: %d %s", w.Code, w.Body.String())
+	}
+	if w := e.do("DELETE", secretBase+"/"+pasted, nil, c); w.Code != http.StatusNotFound {
+		t.Fatalf("delete: %d %s", w.Code, w.Body.String())
+	}
+	for _, action := range []string{"secret_create", "secret_set", "secret_apply_request", "secret_delete"} {
+		rows, err := e.st.ListAudit(context.Background(), store.AuditFilter{Action: action})
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("%s: rows = %+v, %v", action, rows, err)
+		}
+		if r := rows[0]; strings.Contains(r.Params+r.Error, pasted) || r.Params != `{"name":"<invalid>"}` {
+			t.Fatalf("%s: params = %s, error = %s", action, r.Params, r.Error)
+		}
+	}
+}
+
 func TestSecretsCap(t *testing.T) {
 	e := newEnv(t, false, builtUI)
 	c := e.login(t)

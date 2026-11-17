@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/sebbi08/deployment-gateway/internal/dockerx"
 	"github.com/sebbi08/deployment-gateway/internal/service"
 	"github.com/sebbi08/deployment-gateway/internal/service/servicetest"
 	"github.com/sebbi08/deployment-gateway/internal/store"
@@ -423,4 +424,53 @@ func TestSecretValueNeverInAgentResults(t *testing.T) {
 			t.Fatalf("result %d contains the value: %s", i, b)
 		}
 	}
+}
+
+// auditLeaks fails when any audit row holds the value.
+func auditLeaks(h *harness, value string) {
+	h.t.Helper()
+	rows, err := h.st.ListAudit(h.ctx, store.AuditFilter{Limit: 1000})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	for _, r := range rows {
+		if strings.Contains(r.Params, value) || strings.Contains(r.Error, value) {
+			h.t.Fatalf("audit row %s contains the value: params=%s error=%s", r.Action, r.Params, r.Error)
+		}
+	}
+}
+
+func TestPullFailureIsMasked(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	h.createSecret(p, "stripe-prod", "sk_live_123456")
+	h.compose.PullErr = errors.New("pull failed for token sk_live_123456")
+	h.compose.PullOut = "registry said: sk_live_123456 denied"
+	_, err := h.deployRaw(p, "shop", secretStack)
+	if code(err) != service.CodeDeployFailed || strings.Contains(err.Error(), "sk_live_123456") ||
+		!strings.Contains(err.Error(), "token ***") || !strings.Contains(err.Error(), "said: *** denied") {
+		t.Fatalf("err = %v", err)
+	}
+	auditLeaks(h, "sk_live_123456")
+}
+
+func TestRuntimeViolationDetailIsMasked(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	h.createSecret(p, "stripe-prod", "sk_live_123456")
+	d := h.hookDocker()
+	h.compose.AfterUp = func() {
+		d.onInspect = func(id string) (dockerx.Facts, error) {
+			return dockerx.Facts{}, errors.New("inspect saw sk_live_123456")
+		}
+	}
+	_, err := h.deployRaw(p, "shop", secretStack)
+	if code(err) != service.CodeSecurity || strings.Contains(err.Error(), "sk_live_123456") {
+		t.Fatalf("err = %v", err)
+	}
+	crit, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Severity: "critical"})
+	if len(crit) != 1 || !strings.Contains(crit[0].Error, "inspect saw ***") {
+		t.Fatalf("critical audit = %+v", crit)
+	}
+	auditLeaks(h, "sk_live_123456")
 }

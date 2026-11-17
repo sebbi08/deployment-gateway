@@ -111,10 +111,15 @@ func (s *Service) appViews(ctx context.Context, ws store.Workspace) ([]AppView, 
 		return nil, err
 	}
 	stale := map[string][]string{}
+	secretEnv := map[string]map[string][]string{} // app -> service -> env keys (sorted by the query)
 	for _, r := range refs {
 		if r.Stale {
 			stale[r.App] = append(stale[r.App], r.Service+"."+r.EnvKey)
 		}
+		if secretEnv[r.App] == nil {
+			secretEnv[r.App] = map[string][]string{}
+		}
+		secretEnv[r.App][r.Service] = append(secretEnv[r.App][r.Service], r.EnvKey)
 	}
 	var mask func(string) string
 	out := []AppView{}
@@ -129,9 +134,13 @@ func (s *Service) appViews(ctx context.Context, ws store.Workspace) ([]AppView, 
 		if err != nil {
 			return nil, err
 		}
+		for i := range st.Services {
+			st.Services[i].SecretEnv = secretEnv[a.Name][st.Services[i].Service]
+		}
 		v := AppView{App: a.Name, Services: st.Services, DiskBytes: s.disk.usage(s.appDir(ws.Name, a.Name)), LastDeployResult: a.LastDeployResult,
 			StaleSecrets: stale[a.Name]}
-		if a.SecretApplyError != "" {
+		// The apply status explains stale refs; without any it is outdated.
+		if a.SecretApplyError != "" && len(v.StaleSecrets) > 0 {
 			if mask == nil {
 				mask = s.masker(ctx, ws.ID)
 			}
