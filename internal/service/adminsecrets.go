@@ -54,12 +54,22 @@ func (s *Service) AdminSecrets(ctx context.Context, w store.Workspace) ([]Secret
 	for _, a := range apps {
 		byID[a.ID] = a
 	}
+	// The apply error explains stale refs; for an app without any it is outdated.
+	staleApp := map[int64]bool{}
+	for _, r := range refs {
+		if r.Stale {
+			staleApp[r.AppID] = true
+		}
+	}
 	mask := s.masker(ctx, w.ID)
 	uses := map[string][]SecretUse{}
 	for _, r := range refs {
 		a := byID[r.AppID]
-		uses[r.Secret] = append(uses[r.Secret], SecretUse{App: r.App, Service: r.Service, EnvKey: r.EnvKey, Stale: r.Stale,
-			ApplyState: a.SecretApplyState, ApplyError: mask(a.SecretApplyError)})
+		u := SecretUse{App: r.App, Service: r.Service, EnvKey: r.EnvKey, Stale: r.Stale, ApplyState: a.SecretApplyState}
+		if staleApp[r.AppID] {
+			u.ApplyError = mask(a.SecretApplyError)
+		}
+		uses[r.Secret] = append(uses[r.Secret], u)
 	}
 	out := make([]SecretView, 0, len(secrets))
 	for _, sec := range secrets {
@@ -74,6 +84,15 @@ func (s *Service) AdminSecrets(ctx context.Context, w store.Workspace) ([]Secret
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// secretAuditParams names the secret in audit rows. An invalid name is not
+// recorded: an operator may have pasted the value into the name field.
+func secretAuditParams(name string) map[string]string {
+	if !names.ValidSecret(name) {
+		return map[string]string{"name": "<invalid>"}
+	}
+	return map[string]string{"name": name}
 }
 
 // validateSecret checks name and value. Messages never echo the value.
@@ -91,7 +110,7 @@ func validateSecret(name, value string) error {
 }
 
 func (s *Service) CreateSecret(ctx context.Context, actor string, w store.Workspace, name, value string) (err error) {
-	defer s.adminTrack(ctx, actor, w.Name, "secret_create", map[string]string{"name": name}, &err)()
+	defer s.adminTrack(ctx, actor, w.Name, "secret_create", secretAuditParams(name), &err)()
 	if err = validateSecret(name, value); err != nil {
 		return err
 	}
@@ -130,7 +149,7 @@ func distinctApps(refs []store.SecretRef) ([]int64, []string) {
 // it. The workspace mutex covers both steps: the apply job's stale-clearing
 // relies on it.
 func (s *Service) SetSecret(ctx context.Context, actor string, w store.Workspace, name, value string) (affected []string, err error) {
-	defer s.adminTrack(ctx, actor, w.Name, "secret_set", map[string]string{"name": name}, &err)()
+	defer s.adminTrack(ctx, actor, w.Name, "secret_set", secretAuditParams(name), &err)()
 	if err = validateSecret(name, value); err != nil {
 		return nil, err
 	}
@@ -151,7 +170,10 @@ func (s *Service) SetSecret(ctx context.Context, actor string, w store.Workspace
 
 // ReapplySecret queues the apps whose ref to the secret is still stale.
 func (s *Service) ReapplySecret(ctx context.Context, actor string, w store.Workspace, name string) (affected []string, err error) {
-	defer s.adminTrack(ctx, actor, w.Name, "secret_apply_request", map[string]string{"name": name}, &err)()
+	defer s.adminTrack(ctx, actor, w.Name, "secret_apply_request", secretAuditParams(name), &err)()
+	if !names.ValidSecret(name) {
+		return nil, notFoundError("secret")
+	}
 	mu := s.wsMutex(w.Name)
 	mu.Lock()
 	defer mu.Unlock()
@@ -178,7 +200,10 @@ func (s *Service) ReapplySecret(ctx context.Context, actor string, w store.Works
 }
 
 func (s *Service) DeleteSecret(ctx context.Context, actor string, w store.Workspace, name string) (err error) {
-	defer s.adminTrack(ctx, actor, w.Name, "secret_delete", map[string]string{"name": name}, &err)()
+	defer s.adminTrack(ctx, actor, w.Name, "secret_delete", secretAuditParams(name), &err)()
+	if !names.ValidSecret(name) {
+		return notFoundError("secret")
+	}
 	mu := s.wsMutex(w.Name)
 	mu.Lock()
 	defer mu.Unlock()

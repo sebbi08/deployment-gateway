@@ -105,8 +105,11 @@ func (s *Store) AppKeys(ctx context.Context) (map[string]bool, error) {
 }
 
 // SaveDeployment upserts the app record and replaces its port claims in one
-// transaction, together with its secret refs (all non-stale). On a claim
-// conflict or a ref to a missing or unset secret nothing is changed.
+// transaction, together with its secret refs (all non-stale). It resets the
+// secret apply status: the deploy writes every env file from current values,
+// so an older skip or failure no longer applies (deploys and applies hold
+// the app lock). On a claim conflict or a ref to a missing or unset secret
+// nothing is changed.
 func (s *Store) SaveDeployment(ctx context.Context, wsID int64, name string, mem int64, cpus float64, hosts map[string]string, claims []PortClaim, refs []SecretRefInput) (App, error) {
 	if hosts == nil {
 		hosts = map[string]string{}
@@ -117,7 +120,8 @@ func (s *Store) SaveDeployment(ctx context.Context, wsID int64, name string, mem
 		if _, err := tx.ExecContext(ctx, `INSERT INTO apps (workspace_id, name, memory_bytes, cpus, hosts_json, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT (workspace_id, name) DO UPDATE SET memory_bytes=excluded.memory_bytes, cpus=excluded.cpus,
-			hosts_json=excluded.hosts_json, updated_at=excluded.updated_at`,
+			hosts_json=excluded.hosts_json, updated_at=excluded.updated_at,
+			secret_apply_state='', secret_apply_at=NULL, secret_apply_error=''`,
 			wsID, name, mem, cpus, string(hostsJSON), now, now); err != nil {
 			return err
 		}

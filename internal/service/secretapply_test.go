@@ -496,3 +496,174 @@ func TestApplyKeepsStaleWhenValueChangesDuringRecreate(t *testing.T) {
 		t.Fatalf("apply state = %q %q", a.SecretApplyState, a.SecretApplyError)
 	}
 }
+
+// A skipped apply leaves its reason in the apply status; a later successful
+// deploy applies the value and the old reason must not show any more.
+func TestRedeployAfterSkippedApplyClearsApplyError(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	a := deployApply(t, h, p)
+	h.startApplier()
+	if err := h.st.RecordDeploy(h.ctx, a.ID, "failed"); err != nil {
+		t.Fatal(err)
+	}
+	h.changeSecret(p, "db-pass", newPass)
+	if a = h.app(p, "shop"); a.SecretApplyState != "skipped" {
+		t.Fatalf("apply state = %q %q", a.SecretApplyState, a.SecretApplyError)
+	}
+	if _, err := h.deployRaw(p, "shop", applyStack); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.svc.List(h.ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Apps) != 1 || res.Apps[0].SecretApplyError != "" || len(res.Apps[0].StaleSecrets) != 0 {
+		t.Fatalf("apps = %+v", res.Apps)
+	}
+	if a = h.app(p, "shop"); a.SecretApplyState != "" || a.SecretApplyAt != nil || a.SecretApplyError != "" {
+		t.Fatalf("apply status = %q %v %q", a.SecretApplyState, a.SecretApplyAt, a.SecretApplyError)
+	}
+}
+
+// A pass that cannot take the app lock writes nothing when nothing is stale
+// (a deploy already applied the value).
+func TestApplyBusyWithoutStaleRefsIsNoop(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	a := deployApply(t, h, p)
+	h.svc.ApplyLockWait = 100 * time.Millisecond
+	h.svc.SetApplyPoll(20 * time.Millisecond)
+	h.startApplier()
+	unlock, _ := h.compose.TryLock("alice/shop")
+	defer unlock()
+	h.svc.EnqueueApply("alice", []int64{a.ID})
+	h.waitApplyIdle()
+	if a = h.app(p, "shop"); a.SecretApplyState != "" || a.SecretApplyError != "" || a.SecretApplyAt != nil {
+		t.Fatalf("apply status = %q %q %v", a.SecretApplyState, a.SecretApplyError, a.SecretApplyAt)
+	}
+	if rows, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Action: "secret_apply"}); len(rows) != 0 {
+		t.Fatalf("audit = %+v", rows)
+	}
+}
+
+// With no affected service running, the pass records why nothing was
+// recreated instead of leaving an older message.
+func TestApplySkipsWhenNoServiceRuns(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	a := deployApply(t, h, p)
+	h.startApplier()
+	if err := h.st.SetSecretApply(h.ctx, a.ID, "failed", "an older failure"); err != nil {
+		t.Fatal(err)
+	}
+	h.setState("alice-shop-web", "exited")
+	h.setState("alice-shop-db", "exited")
+	n := len(h.compose.Calls())
+	h.changeSecret(p, "db-pass", newPass)
+	if got := h.callsSince(n); len(got) != 0 {
+		t.Fatalf("compose calls = %v", got)
+	}
+	a = h.app(p, "shop")
+	if a.SecretApplyState != "skipped" || a.SecretApplyError != "no running service uses the changed secret; applied on the next deploy" {
+		t.Fatalf("apply state = %q %q", a.SecretApplyState, a.SecretApplyError)
+	}
+}
+
+// A failure that is not a service error (here: listing containers) reaches
+// the agent only as a generic message; the detail stays in the audit row.
+func TestApplyInternalErrorIsGeneric(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployApply(t, h, p)
+	d := h.hookDocker()
+	d.onProjectContainers = func(ws, app string) ([]dockerx.ContainerInfo, error) {
+		return nil, errors.New("dial unix /var/run/docker.sock: raw-detail")
+	}
+	h.startApplier()
+	h.changeSecret(p, "db-pass", newPass)
+	a := h.app(p, "shop")
+	if a.SecretApplyState != "failed" || a.SecretApplyError != "applying the changed secret value failed (internal error)" {
+		t.Fatalf("apply state = %q %q", a.SecretApplyState, a.SecretApplyError)
+	}
+	rows, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Action: "secret_apply"})
+	if len(rows) != 1 || !strings.Contains(rows[0].Error, "raw-detail") {
+		t.Fatalf("audit = %+v", rows)
+	}
+}
+
+// The list shows the apply error only while the app has stale refs, and
+// the secret env keys of each service.
+func TestListApplyErrorOnlyWhileStale(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	a := deployApply(t, h, p)
+	if err := h.st.SetSecretApply(h.ctx, a.ID, "skipped", "app busy"); err != nil {
+		t.Fatal(err)
+	}
+	res, err := h.svc.List(h.ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Apps) != 1 || res.Apps[0].SecretApplyError != "" || len(res.Apps[0].Services) != 2 {
+		t.Fatalf("apps = %+v", res.Apps)
+	}
+	for _, svc := range res.Apps[0].Services {
+		if !slices.Equal(svc.SecretEnv, []string{"K"}) {
+			t.Fatalf("services = %+v", res.Apps[0].Services)
+		}
+	}
+	h.setSecret(p, "db-pass", newPass)
+	if res, _ = h.svc.List(h.ctx, p); res.Apps[0].SecretApplyError != "app busy" {
+		t.Fatalf("apps = %+v", res.Apps)
+	}
+}
+
+// The admin view shows a use's apply error only while the app has stale refs.
+func TestAdminSecretsApplyErrorOnlyWhileStale(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	a := deployApply(t, h, p)
+	if err := h.st.SetSecretApply(h.ctx, a.ID, "skipped", "app busy"); err != nil {
+		t.Fatal(err)
+	}
+	errs := func() []string {
+		t.Helper()
+		v, err := h.svc.AdminSecrets(h.ctx, p.Workspace)
+		if err != nil || len(v) != 1 {
+			t.Fatalf("secrets = %+v, %v", v, err)
+		}
+		var out []string
+		for _, u := range v[0].UsedBy {
+			out = append(out, u.ApplyError)
+		}
+		return out
+	}
+	if got := errs(); !slices.Equal(got, []string{"", ""}) {
+		t.Fatalf("apply errors = %q", got)
+	}
+	h.setSecret(p, "db-pass", newPass)
+	if got := errs(); !slices.Equal(got, []string{"app busy", "app busy"}) {
+		t.Fatalf("apply errors = %q", got)
+	}
+}
+
+// Saving the value a secret already has recreates nothing.
+func TestSetSecretUnchangedValueIsNoop(t *testing.T) {
+	h := newHarness(t)
+	p := h.workspace("alice", 20000, 20099)
+	deployApply(t, h, p)
+	h.startApplier()
+	n := len(h.compose.Calls())
+	apps, err := h.svc.SetSecret(h.ctx, "admin", p.Workspace, "db-pass", oldPass)
+	if err != nil || len(apps) != 0 {
+		t.Fatalf("apps = %v, %v", apps, err)
+	}
+	h.waitApplyIdle()
+	if got := h.callsSince(n); len(got) != 0 {
+		t.Fatalf("compose calls = %v", got)
+	}
+	if stale := staleByService(h.appRefs(p, "shop")); stale["web"] || stale["db"] {
+		t.Fatalf("stale = %v", stale)
+	}
+}

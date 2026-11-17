@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestRequestAndSetSecret(t *testing.T) {
@@ -234,5 +235,69 @@ func TestDeleteWorkspaceWithSecretRefs(t *testing.T) {
 	}
 	if err := s.DeleteWorkspace(ctx, w.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// A deploy resets the secret apply status: its refs are fresh, so an older
+// skip or failure no longer describes what runs.
+func TestSaveDeploymentResetsApplyStatus(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	w := newWorkspace(t, s, "alice", 20000, 20099)
+	app, err := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetSecretApply(ctx, app.ID, "skipped", "applied on the next successful deploy"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.SecretApplyState != "" || a.SecretApplyAt != nil || a.SecretApplyError != "" {
+		t.Fatalf("apply status = %q %v %q", a.SecretApplyState, a.SecretApplyAt, a.SecretApplyError)
+	}
+}
+
+// Saving the value a secret already has changes nothing: no refs become
+// stale and updated_at stays.
+func TestSetSecretValueUnchanged(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	clock := time.Unix(1_700_000_000, 0)
+	s.now = func() time.Time { return clock }
+	w := newWorkspace(t, s, "alice", 20000, 20099)
+	if err := s.CreateSecret(ctx, w.ID, "k", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	app, err := s.SaveDeployment(ctx, w.ID, "shop", 1, 0.1, nil, nil, []SecretRefInput{{"web", "K", "k"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock = clock.Add(time.Hour)
+	refs, err := s.SetSecretValue(ctx, w.ID, "k", "v1")
+	if err != nil || len(refs) != 0 {
+		t.Fatalf("refs = %+v, %v", refs, err)
+	}
+	if got, _ := s.AppSecretRefs(ctx, app.ID); len(got) != 1 || got[0].Stale {
+		t.Fatalf("refs = %+v", got)
+	}
+	if list, _ := s.ListSecrets(ctx, w.ID); !list[0].UpdatedAt.Equal(time.Unix(1_700_000_000, 0)) {
+		t.Fatalf("updated_at = %v", list[0].UpdatedAt)
+	}
+	// A different value still marks the refs stale.
+	if refs, err := s.SetSecretValue(ctx, w.ID, "k", "v2"); err != nil || len(refs) != 1 {
+		t.Fatalf("refs = %+v, %v", refs, err)
+	}
+	// A requested secret (no value yet) is set as usual.
+	if err := s.RequestSecrets(ctx, w.ID, []string{"r"}, "shop"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetSecretValue(ctx, w.ID, "r", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if v, _ := s.SecretValues(ctx, w.ID); v["r"] != "x" {
+		t.Fatalf("values = %v", v)
 	}
 }

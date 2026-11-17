@@ -29,6 +29,8 @@ const (
 	skipPolicy       = "configuration no longer allowed by current policy; the agent must redeploy"
 	skipBusy         = "app busy"
 	skipNotRunning   = "no running service uses the changed secret; applied on the next deploy"
+
+	applyInternalError = "applying the changed secret value failed (internal error)"
 )
 
 // applyQueue holds the apps waiting for an apply pass, per workspace, and
@@ -243,11 +245,15 @@ func (s *Service) waitAppLock(ctx context.Context, key string) (func(), error) {
 	}
 }
 
-// applyBusy records that the app lock could not be taken in time.
+// applyBusy records that the app lock could not be taken in time, unless
+// nothing is stale any more (a deploy applied the value).
 func (s *Service) applyBusy(ctx context.Context, app store.App) (applyOutcome, error) {
 	refs, err := s.Store.AppSecretRefs(ctx, app.ID)
 	if err != nil {
 		return applyOutcome{}, err
+	}
+	if len(staleServices(refs)) == 0 {
+		return applyOutcome{noop: true}, nil
 	}
 	out := applyOutcome{secrets: staleSecrets(refs), skipped: skipBusy}
 	return out, s.Store.SetSecretApply(ctx, app.ID, "skipped", skipBusy)
@@ -285,12 +291,14 @@ func (s *Service) applyLocked(ctx context.Context, ws store.Workspace, app store
 		out.skipped = reason
 		return out, s.Store.SetSecretApply(ctx, a.ID, "skipped", reason)
 	}
-	// Every later failure is recorded in the apply status.
+	// Every later failure is recorded in the apply status, which agents see.
+	// Only service errors carry a message meant for them; the detail of any
+	// other error goes to the audit row only.
 	defer func() {
 		if err == nil {
 			return
 		}
-		msg := err.Error()
+		msg := applyInternalError
 		var se *Error
 		if errors.As(err, &se) {
 			msg = se.Message
@@ -335,8 +343,7 @@ func (s *Service) applyLocked(ctx context.Context, ws store.Workspace, app store
 		}
 	}
 	if len(keys) == 0 {
-		out.skipped = skipNotRunning
-		return out, nil
+		return skip(skipNotRunning)
 	}
 	if err := s.Store.SetSecretApply(ctx, a.ID, "running", ""); err != nil {
 		return out, err

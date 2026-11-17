@@ -108,13 +108,18 @@ func (s *Store) CreateSecret(ctx context.Context, wsID int64, name, value string
 }
 
 // SetSecretValue sets or replaces a value, and marks every ref to the secret
-// stale. It returns those refs.
+// stale. It returns those refs. Saving the value the secret already has
+// changes nothing and returns no refs.
 func (s *Store) SetSecretValue(ctx context.Context, wsID int64, name, value string) ([]SecretRef, error) {
-	var refs []SecretRef
+	refs := []SecretRef{}
 	err := s.withTx(ctx, func(tx *sql.Tx) error {
 		var id int64
-		if err := tx.QueryRowContext(ctx, `SELECT id FROM workspace_secrets WHERE workspace_id=? AND name=?`, wsID, name).Scan(&id); err != nil {
+		var current sql.NullString
+		if err := tx.QueryRowContext(ctx, `SELECT id, value FROM workspace_secrets WHERE workspace_id=? AND name=?`, wsID, name).Scan(&id, &current); err != nil {
 			return notFound(err)
+		}
+		if current.Valid && current.String == value {
+			return nil
 		}
 		if _, err := tx.ExecContext(ctx, `UPDATE workspace_secrets SET value=?, updated_at=?, requested_at=NULL WHERE id=?`, value, s.now().Unix(), id); err != nil {
 			return err

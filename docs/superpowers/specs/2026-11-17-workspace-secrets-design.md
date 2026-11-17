@@ -156,7 +156,8 @@ When the operator saves a new value for a secret that has refs:
 3. Services that are not selected keep stale refs; the next deploy recreates them with the new value (compose detects the changed env file, §6.2). Note: the agent's `restart` tool restarts the existing container and does **not** pick up the new value; the UI says so.
 4. Crash safety: at startup, apps with `secret_apply_state = 'running'` get the same plan-independent runtime checks as interrupted deploys (`recover.go`), violating containers are removed, and the state becomes `interrupted` (refs stay stale).
 5. Apply jobs are not persisted otherwise. After a gateway restart, stale refs remain visible and the operator can re-run the apply (§8 endpoint). No automatic retry.
-6. Agent visibility: `list` shows per app the env keys whose secret has a newer value not yet applied (`stale_secrets`, keys only) and, if the last apply failed, its sanitized and masked error. This tells an agent that a failure stems from a secret change, not from its own code.
+6. Agent visibility: `list` shows per app the env keys whose secret has a newer value not yet applied (`stale_secrets`, keys only) and, while any are stale, the sanitized and masked reason the last apply skipped or failed. This tells an agent that a failure stems from a secret change, not from its own code. Errors that are not gateway messages (raw Go errors) are recorded as "applying the changed secret value failed (internal error)"; their detail goes to the audit row only.
+7. Apply status bookkeeping: a deploy resets the apply status (it writes every env file from current values and clears `stale`); a pass that finds nothing stale writes nothing; a pass where no affected service is running records `skipped` ("no running service uses the changed secret; applied on the next deploy"). Saving the value a secret already has is a no-op (no refs become stale, nothing is recreated).
 
 A newer value saved while a job for the same secret is still running queues another pass; jobs for one workspace never run concurrently with each other.
 
@@ -168,12 +169,12 @@ A newer value saved while a job for the same secret is still running queues anot
 |---|---|
 | `GET workspaces/{name}/secrets` | list: name, state (set/requested), created/updated/requested time, requested_by, usage `[{app, service, env_key, stale}]`. Never returns values |
 | `POST workspaces/{name}/secrets` | `{name, value}`: create a set secret (operator may pre-create) |
-| `PUT workspaces/{name}/secrets/{secret}` | `{value}`: set a requested secret or replace a value; triggers apply (§7) if refs exist |
+| `PUT workspaces/{name}/secrets/{secret}` | `{value}`: set a requested secret or replace a value; triggers apply (§7) if refs exist and the value changed |
 | `POST workspaces/{name}/secrets/{secret}/apply` | re-run the apply for stale refs |
 | `DELETE workspaces/{name}/secrets/{secret}` | delete; refused with `conflict` while refs exist (lists the apps) |
 
 - Value validation per §6.1; name per §4.1.
-- All mutations audited with `actor_type=admin`; params contain the secret name only. The generic `redact` must also mask a `value` field defensively, with a test.
+- All mutations audited with `actor_type=admin`; params contain the secret name only, or `"<invalid>"` for a name that fails validation (an operator may have pasted a value into the name field). The generic `redact` must also mask a `value` field defensively, with a test.
 - Workspace detail (`GET workspaces/{name}`) and the dashboard get the count of requested secrets.
 
 ### 8.2 UI
@@ -192,7 +193,7 @@ Secrets                                                     [+ New secret]
 ```
 
 - Set/Replace opens a modal with a password-type input (no reveal, no prefill); on save a notification says which apps will be updated.
-- "stale" shows a tooltip: not yet applied (stopped service, failed apply or gateway restart); for stopped services it says the value takes effect on the next deploy, not on `restart`.
+- "stale" shows a tooltip: not yet applied (stopped service, failed apply or gateway restart); for stopped services it says the value takes effect on the next deploy, not on `restart`. Below a stale use a dimmed line shows the app's last apply state and error. While any use is stale the list is refetched every 5 s, so the badge clears after the background apply.
 - Delete is disabled while in use, with the list of apps.
 
 ### 8.3 File explorer
