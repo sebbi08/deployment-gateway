@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.28
 # Changing the version requires updating both checksums below.
-ARG COMPOSE_VERSION=v5.7.0
+ARG COMPOSE_VERSION=v5.8.0
 
 FROM node:26.13.1-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1 AS web
 WORKDIR /src/web
