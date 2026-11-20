@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.28
+# syntax=docker/dockerfile:1.29
 # Changing the version requires updating both checksums below.
 ARG COMPOSE_VERSION=v5.7.0
 
