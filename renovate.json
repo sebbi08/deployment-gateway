@@ -1,7 +1,7 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "dependencyDashboard": true,
+  "dependencyDashboard": { "enabled": true },
   "automerge": false,
   "platformAutomerge": false,
   "minimumReleaseAge": "3 days",
@@ -39,6 +39,12 @@
       "automerge": false
     },
     {
+      "description": "Replacement-Updates (ein Paket wird durch ein anderes ersetzt, z. B. @tsconfig/node24 → @tsconfig/node26) haben in Renovate kein Release-Datum. Damit sie trotz minimumReleaseAge kommen: ohne Altersprüfung, dafür nie automatisch gemergt.",
+      "matchUpdateTypes": ["replacement"],
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+      "automerge": false
+    },
+    {
       "description": "docker/compose: Renovate hebt nur COMPOSE_VERSION an, nicht die SHA256-Checksummen, und die CI baut kein Image. Deshalb eigener PR, nie automatisch mergen.",
       "matchPackageNames": ["docker/compose"],
       "groupName": "docker/compose",
@@ -55,5 +61,7 @@
       "depNameTemplate": "docker/compose",
       "datasourceTemplate": "github-releases"
     }
-  ]
+  ],
+  "npmrc": "allow-remote=all",
+  "npmrcMerge": true
 }
